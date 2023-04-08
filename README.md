@@ -21,3 +21,45 @@ Magewell:
 $ grep -rni . -e license
 ./src/sources/avstream/capture.c:611:MODULE_LICENSE("GPL");
 ```
+
+Basic install instructions:
+```
+git clone https://github.com/GloriousEggroll/AVMATRIX-VC12-4K-CAPTURE
+cd AVMATRIX-VC12-4K-CAPTURE
+./dkms-install.sh
+reboot
+```
+
+Note: Make sure there are no spaces in the directory path or the scripts may fail:
+
+Good path:
+```
+	/home/someuser/Downloads/AVMATRIX-VC12-4K_linux_230324
+```
+Bad path:
+```
+    /home/someuser/Downloads/AVMATRIX VC12 4K_linux_230324/
+```
+
+After a successful installation, you should see something similar to:
+```
+========================================================
+
+Install Successfully!"
+For more information please check the docs directory or"
+contact alex.liu@longtimetech.com."
+
+========================================================
+```
+NOTE: You must reboot the system for the new driver module to take effect.
+
+To use:
+
+Install obs-studio.
+
+Sources > Video Capture Device (V4L2) > HVideo1 (HWS)
+
+Uninstall:
+```
+$ ./scripts/hws-uninstall.sh
+```
