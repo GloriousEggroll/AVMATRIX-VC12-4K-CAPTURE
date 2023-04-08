@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8"/>
+<meta name="author" content="MV360"/>
+<style>
+.td{width:120px;word-break:break-all}
+</style>
+</head>
+<body>
+
+<style>
+    .td1{width:600px;word-break:break-all}
+</style>
+
+<h1 id="hwscapture系列采集卡">Hws Capture 系列采集卡</h1>
+
+<h1 id="快速使用指南forlinux">快速使用指南 for Linux</h1>
+
+<p>版权所有 2021 Longtimetech 保留所有权利。</p>
+
+<p>最后更新时间 2021&#8211;06–26</p>
+
+<h2 id="1简介">1 简介</h2>
+
+<p>HWS 系列采集卡可应用于 4路HDMI，4路SDI 采集卡。采集卡驱动支持Thunderbot3/4/USB4 </p>
+
+<h2 id="2产品安装">2 产品安装</h2>
+
+<ul>
+<li><p>关闭计算机电源;</p></li>
+<li><p>将Hws采集卡插入到计算机PCI Express插槽中/雷电拓展邬中</p>
+    </li>
+<li><p>开启计算机电源，启动操作系统;</p></li>
+</ul>
+
+<h2 id="3驱动安装">3 驱动安装</h2>
+
+<h3 id="3.1驱动安装简介">3.1 驱动安装简介</h3>
+
+<p>本节主要介绍如何在 linux 系统环境下安装 Hws Capture 系列采集卡的驱动程序.</p>
+
+<h3 id="3.2驱动安装">3.2 驱动安装</h3>
+
+<ul>
+<li><p>下载驱动程序安装包 hws_XXXX.zip其中 XXXX 表示下载驱动的版本号。</p></li>
+<li><p>输入命令：unzip hws_XXXX.zip 将驱动解压到当前目录。</p></li>
+<li><p>解压后包括如下目录和文件：</p>
+
+<ul>
+<li><p>play：play目录中包含了测试采集卡的脚本</p></li>
+<li><p>scripts： scripts 目录中包含了安装、卸载、修复驱动的脚本及系统配置文件。</p></li>
+<li><p>src：src 目录中包含了驱动程序的源码。</p></li>
+<li><p>install.sh：执行该文件即可调用 scripts 目录的中的脚本自动安装驱动程序。</p></li>
+</ul>
+
+<figure>
+&nbsp;</figure></li>
+<li><p>安装内核开发包：安装驱动之前，必须先安装内核开发包，否则安装驱动将失败。 </p>
+
+<ul>
+<li><p>Ubuntu：sudo apt-get install linux-headers-`uname -r` </p></li>
+<li><p>Fedora、CentOS、RHEL: sudo yum install kernel-devel</p></li>
+</ul></li>
+<li><p>执行当前目录下 install.sh 文件，安装驱动。</p>
+
+<figure>
+&nbsp;</figure></li>
+</ul>
+
+</body>
+</html>
