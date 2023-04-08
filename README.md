@@ -1,5 +1,7 @@
 Preface:
 
+I am in no way affiliated with AVMATRIX.
+
 I bought this card on Amazon for around $250 because it has the same capabilities as the Magewell Pro Capture HDMI 4k LT, and I wanted to see if it held up in comparison. The Magewell card is a $900 card, as opposed to this one. 
 
 Once I got the card, I found the standard ./install -did not work- on Fedora, and the code was slightly outdated for kernel 6.1. On top of that the drivers were being hosted on OneDrive.. which is sketchy. 
@@ -47,7 +49,7 @@ After a successful installation, you should see something similar to:
 
 Install Successfully!"
 For more information please check the docs directory or"
-contact alex.liu@longtimetech.com."
+contact sales@avmatrix.com"
 
 ========================================================
 ```
