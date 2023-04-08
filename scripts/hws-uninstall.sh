@@ -7,6 +7,7 @@ HWS_TOP_DIR=$SCRIPT_PATH/..
 SRC_DIR=$HWS_TOP_DIR/src
 MODULE_NAME=HwsUHDX1Capture
 MODULE_INSTALL_DIR=/usr/local/share/HWS
+MODULE_VERSION=1.0.0.230324
 
 echo_string ()
 {
@@ -56,6 +57,11 @@ remove_module ()
         echo_string_nonewline "Re-generating modules.dep and map files ... "
         $DEPMOD -a >> $LOGFILE 2>&1
         echo_string "Done."
+    fi
+
+    if [ -d /usr/src/${MODULE_NAME}-${MODULE_VERSION} ] || [ -h /usr/src/${MODULE_NAME}_${MODULE_VERSION} ]; then
+        dkms remove -m ${MODULE_NAME} -v ${MODULE_VERSION} --all
+        rm -vf /usr/src/${MODULE_NAME}_${MODULE_VERSION} >> $LOGFILE 2>&1
     fi
 
     if [ -d $MODULE_INSTALL_DIR ]; then

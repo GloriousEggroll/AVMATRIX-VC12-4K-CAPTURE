@@ -10,7 +10,7 @@ fi
 HWS_TOP_DIR=$SCRIPT_PATH/..
 SRC_DIR=$HWS_TOP_DIR/src
 MODULE_NAME=HwsUHDX1Capture.ko
-MODUEL_INSTALL_DIR=/usr/local/share/HWS
+MODULE_INSTALL_DIR=/usr/local/share/HWS
 
 	echo $SRC_DIR
 	echo $HWS_TOP_DIR
@@ -138,26 +138,26 @@ install_module ()
         echo_string "ERROR: Failed to install module!"
         error_exit
     fi
-    if [ ! -d $MODUEL_INSTALL_DIR ]; then
-        mkdir -p $MODUEL_INSTALL_DIR >> $LOGFILE 2>&1
+    if [ ! -d $MODULE_INSTALL_DIR ]; then
+        mkdir -p $MODULE_INSTALL_DIR >> $LOGFILE 2>&1
     fi
     RET=$?
     if [ $RET -ne 0 ] ; then
         echo_string ""
-        echo_string "ERROR: Failed to create directory $MODUEL_INSTALL_DIR !"
+        echo_string "ERROR: Failed to create directory $MODULE_INSTALL_DIR !"
         error_exit
     fi
 
-    cp -rvf $HWS_TOP_DIR/src $MODUEL_INSTALL_DIR >> $LOGFILE 2>&1 &&
-    cp -rvf $HWS_TOP_DIR/scripts $MODUEL_INSTALL_DIR >> $LOGFILE 2>&1
+    cp -rvf $HWS_TOP_DIR/src $MODULE_INSTALL_DIR >> $LOGFILE 2>&1 &&
+    cp -rvf $HWS_TOP_DIR/scripts $MODULE_INSTALL_DIR >> $LOGFILE 2>&1
     RET=$?
     if [ $RET -ne 0 ] ; then
         echo_string ""
-        echo_string "ERROR: Failed to copy driver files to $MODUEL_INSTALL_DIR !"
+        echo_string "ERROR: Failed to copy driver files to $MODULE_INSTALL_DIR !"
         error_exit
     fi
-    ln -sf $MODUEL_INSTALL_DIR/scripts/hws-repair.sh /usr/bin/ >> $LOGFILE 2>&1
-    ln -sf $MODUEL_INSTALL_DIR/scripts/hws-uninstall.sh /usr/bin/ >> $LOGFILE 2>&1
+    ln -sf $MODULE_INSTALL_DIR/scripts/hws-repair.sh /usr/bin/ >> $LOGFILE 2>&1
+    ln -sf $MODULE_INSTALL_DIR/scripts/hws-uninstall.sh /usr/bin/ >> $LOGFILE 2>&1
 
    
     $DEPMOD -a
@@ -240,7 +240,7 @@ echo_string_nonewline "Checking for previous installation ... "
 KERNEL_STR=`uname -r`
 MODULE_FILE=`find /lib/modules/$KERNEL_STR -iname "HwsUHDX1Capture.ko"`
 
-if [ -n "$MODULE_FILE" -o -e "$MODUEL_INSTALL_DIR" ]; then
+if [ -n "$MODULE_FILE" -o -e "$MODULE_INSTALL_DIR" ]; then
     echo_string "Found"
     echo_string "Removing previous installation..."
 
