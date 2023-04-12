@@ -5,7 +5,7 @@ LOGFILE=hws_install.log
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)"
 HWS_TOP_DIR=$SCRIPT_PATH/..
 SRC_DIR=$HWS_TOP_DIR/src
-MODULE_NAME=HwsUHDX1Capture
+MODULE_NAME=HwsUHDX1Capture.ko
 MODULE_INSTALL_DIR=/usr/local/share/HWS
 MODULE_VERSION=1.0.0.230324
 

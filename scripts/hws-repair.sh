@@ -9,7 +9,7 @@ else
 fi
 HWS_TOP_DIR=$SCRIPT_PATH/..
 SRC_DIR=$HWS_TOP_DIR/src
-MODULE_NAME=HwsUHDX1Capture
+MODULE_NAME=HwsUHDX1Capture.ko
 MODUEL_INSTALL_DIR=/usr/local/share/HWS
 
 MODULE_BUILD_DIR="`pwd`/hws_build"
