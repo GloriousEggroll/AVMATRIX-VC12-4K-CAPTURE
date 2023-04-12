@@ -36,11 +36,11 @@ Note: Make sure there are no spaces in the directory path or the scripts may fai
 
 Good path:
 ```
-	/home/someuser/Downloads/AVMATRIX-VC12-4K_linux_230324
+	/home/someuser/Downloads/AVMATRIX-VC12-4K-CAPTURE/
 ```
 Bad path:
 ```
-    /home/someuser/Downloads/AVMATRIX VC12 4K_linux_230324/
+    /home/someuser/Downloads/AVMATRIX VC12 4K CAPTURE/
 ```
 
 After a successful installation, you should see something similar to:
