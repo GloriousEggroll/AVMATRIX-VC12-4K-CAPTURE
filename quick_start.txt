@@ -17,10 +17,10 @@ else:
 *IMPORTANT: The installer scripts may fail if there are spaces in the full path. Please make sure there are no spaces in the path:
 
 Good path:
-	/home/someuser/Downloads/AVMATRIX-VC12-4K_linux_230324
+	/home/someuser/Downloads/AVMATRIX-VC12-4K-CAPTURE/
 
 Bad path:
-        /home/someuser/Downloads/AVMATRIX VC12 4K_linux_230324/
+    /home/someuser/Downloads/AVMATRIX VC12 4K CAPTURE/
 
 After a successful installation, you should see something similar to:
 
