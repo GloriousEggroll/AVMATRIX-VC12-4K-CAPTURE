@@ -5,8 +5,8 @@
 #ifndef _HWS_PCIE_REG_H
 #define _HWS_PCIE_REG_H
 
-#define HWS_VIDEO_NAME "HVideo"
-#define HWS_AUDOI_NAME "HAudio"
+#define HWS_VIDEO_NAME "HUHDVideo"
+#define HWS_AUDOI_NAME "HUHDAudio"
 
 
 
