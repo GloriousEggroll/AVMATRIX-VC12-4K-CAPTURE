@@ -304,7 +304,7 @@ static int hws_vidioc_enum_fmt_vid_cap(struct file *file, void *priv_fh,struct v
 		    //printk("%s..pixfmt=%d.\n",__func__,f->index);
 		    f->index = index;
 		    f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		    strlcpy(f->description, pixfmt->name, sizeof(f->description));
+		    strscpy(f->description, pixfmt->name, sizeof(f->description));
 		    f->pixelformat=pixfmt->fourcc;
 		}
 	}
@@ -3167,7 +3167,11 @@ int hws_video_register(struct hws_pcie_dev *dev)
 		q->io_modes = VB2_READ | VB2_MMAP | VB2_USERPTR;
 		//q->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF | VB2_READ;
 		q->gfp_flags = GFP_DMA32;
+		#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0))
 		q->min_buffers_needed = 2;
+		#else
+		q->min_queued_buffers = 2;
+		#endif
 		q->drv_priv = &(dev->video[i]);
 		q->buf_struct_size = sizeof(struct hwsvideo_buffer);
 		q->ops = &hwspcie_video_qops;
