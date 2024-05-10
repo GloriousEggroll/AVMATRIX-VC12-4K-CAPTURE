@@ -54,8 +54,8 @@ install_module ()
         error_exit
     fi
 
-    cp -rvf $HWS_TOP_DIR/src $MODULE_INSTALL_DIR >> $LOGFILE 2>&1 &&
-    cp -rvf $HWS_TOP_DIR/scripts $MODULE_INSTALL_DIR >> $LOGFILE 2>&1
+    cp -rvf "$HWS_TOP_DIR/src" $MODULE_INSTALL_DIR >> $LOGFILE 2>&1 &&
+    cp -rvf "$HWS_TOP_DIR/scripts" $MODULE_INSTALL_DIR >> $LOGFILE 2>&1
     RET=$?
     if [ $RET -ne 0 ] ; then
         echo_string ""
