@@ -1,5 +1,5 @@
 /*
-*/
+ */
 
 #include <linux/pci.h>
 #include <linux/kernel.h>
@@ -38,14 +38,14 @@ static	void SD_NTSC_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int
 static	void SD_PAL_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 static	void SD_PAL_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 static	void SD_NTSC_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void SD_NTSC_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);	
+static	void SD_NTSC_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 static	void V1280X1024_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 static	void V1280X1024_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 static	void V1280X1024_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void FHD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);	
+static	void FHD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 static	void FHD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void HD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);		
-static	void HD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);		
+static	void HD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
+static	void HD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 static	void V1280X1024_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 static	void V1280X1024_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 static	void All_VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
@@ -61,11 +61,11 @@ static	void All_VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,in
 //------------------------------------------
 
 #define MAKE_ENTRY( __vend, __chip, __subven, __subdev, __configptr) {	\
-	.vendor		= (__vend),					\
-	.device		= (__chip),					\
-	.subvendor	= (__subven),					\
-	.subdevice	= (__subdev),					\
-	.driver_data	= (unsigned long) (__configptr)			\
+.vendor		= (__vend),					\
+.device		= (__chip),					\
+.subvendor	= (__subven),					\
+.subdevice	= (__subdev),					\
+.driver_data	= (unsigned long) (__configptr)			\
 }
 
 static const struct pci_device_id hws_pci_table[] = {
@@ -78,23 +78,23 @@ static const v4l2_model_timing_t support_videofmt[]= {
 	[V4L2_MODEL_VIDEOFORMAT_1920X1080P60]	= V4L2_MODEL_TIMING(1920,1080,60,0),
 	[V4L2_MODEL_VIDEOFORMAT_3840X2160P60]	 = V4L2_MODEL_TIMING(3840,2160,60,0),
 	[V4L2_MODEL_VIDEOFORMAT_1280X720P60]	= V4L2_MODEL_TIMING(1280,720,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_720X480P60]		= V4L2_MODEL_TIMING(720,480,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_720X576P50]		= V4L2_MODEL_TIMING(720,480,50,0),
-    [V4L2_MODEL_VIDEOFORMAT_800X600P60]		= V4L2_MODEL_TIMING(800,600,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_1024X768P60]	= V4L2_MODEL_TIMING(1024,768,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_1280X768P60]	= V4L2_MODEL_TIMING(1280,768,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_1280X800P60]	= V4L2_MODEL_TIMING(1280,800,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_1280X1024P60]	= V4L2_MODEL_TIMING(1280,1024,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_1360X768P60]	= V4L2_MODEL_TIMING(1360,768,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_1440X900P60]	= V4L2_MODEL_TIMING(1440,900,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_1680X1050P60]	= V4L2_MODEL_TIMING(1680,1050,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_1920X1200P60]	= V4L2_MODEL_TIMING(1920,1200,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_2560X1080P60]	= V4L2_MODEL_TIMING(2560,1080,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_2560X1440P60]	= V4L2_MODEL_TIMING(2560,1440,60,0),
-    [V4L2_MODEL_VIDEOFORMAT_4096X2160P60]	= V4L2_MODEL_TIMING(4096,2160,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_720X480P60]		= V4L2_MODEL_TIMING(720,480,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_720X576P50]		= V4L2_MODEL_TIMING(720,480,50,0),
+	[V4L2_MODEL_VIDEOFORMAT_800X600P60]		= V4L2_MODEL_TIMING(800,600,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_1024X768P60]	= V4L2_MODEL_TIMING(1024,768,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_1280X768P60]	= V4L2_MODEL_TIMING(1280,768,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_1280X800P60]	= V4L2_MODEL_TIMING(1280,800,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_1280X1024P60]	= V4L2_MODEL_TIMING(1280,1024,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_1360X768P60]	= V4L2_MODEL_TIMING(1360,768,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_1440X900P60]	= V4L2_MODEL_TIMING(1440,900,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_1680X1050P60]	= V4L2_MODEL_TIMING(1680,1050,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_1920X1200P60]	= V4L2_MODEL_TIMING(1920,1200,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_2560X1080P60]	= V4L2_MODEL_TIMING(2560,1080,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_2560X1440P60]	= V4L2_MODEL_TIMING(2560,1440,60,0),
+	[V4L2_MODEL_VIDEOFORMAT_4096X2160P60]	= V4L2_MODEL_TIMING(4096,2160,60,0),
 };
 static const framegrabber_pixfmt_t support_pixfmts[] = {
-	
+
 	[FRAMEGRABBER_PIXFMT_YUYV]={ //YUYV index=0
 		.name     = "4:2:2, packed, YUYV",
 		.fourcc   = V4L2_PIX_FMT_YUYV,
@@ -104,99 +104,99 @@ static const framegrabber_pixfmt_t support_pixfmts[] = {
 	},
 	#if 0
 	[FRAMEGRABBER_PIXFMT_UYVY]={ //UYVY
-		.name     = "4:2:2, packed, UYVY",
-		.fourcc   = V4L2_PIX_FMT_UYVY,
-		.depth    = 16,
-		.is_yuv   = true,
-		.pixfmt_out = UYVY,
-	},
-	[FRAMEGRABBER_PIXFMT_YVYU]={ //YVYU
-		.name     = "4:2:2, packed, YVYU",
-		.fourcc   = V4L2_PIX_FMT_YVYU,
-		.depth    = 16,
-		.is_yuv   = true,
-		.pixfmt_out = YVYU,
-	},
-	
-	[FRAMEGRABBER_PIXFMT_VYUY]={ //VYUY
-		.name     = "4:2:2, packed, VYUY",
-		.fourcc   = V4L2_PIX_FMT_VYUY,
-		.depth    = 16,
-		.is_yuv   = true,
-		.pixfmt_out = VYUY,
-	},
+	.name     = "4:2:2, packed, UYVY",
+	.fourcc   = V4L2_PIX_FMT_UYVY,
+	.depth    = 16,
+	.is_yuv   = true,
+	.pixfmt_out = UYVY,
+},
+[FRAMEGRABBER_PIXFMT_YVYU]={ //YVYU
+.name     = "4:2:2, packed, YVYU",
+.fourcc   = V4L2_PIX_FMT_YVYU,
+.depth    = 16,
+.is_yuv   = true,
+.pixfmt_out = YVYU,
+},
 
-	[FRAMEGRABBER_PIXFMT_RGB565]={ //RGBP
-		.name     = "RGB565 (LE)",
-		.fourcc   = V4L2_PIX_FMT_RGB565, /* gggbbbbb rrrrrggg */
-		.depth    = 16,
-		.is_yuv   = false,
-		.pixfmt_out = RGBP,
-	},
-	[FRAMEGRABBER_PIXFMT_RGB565X]={ //RGBR
-		.name     = "RGB565 (BE)",
-		.fourcc   = V4L2_PIX_FMT_RGB565X, /* rrrrrggg gggbbbbb */
-		.depth    = 16,
-		.is_yuv   = false,
-		.pixfmt_out = RGBR,
-	},
-	[FRAMEGRABBER_PIXFMT_RGB555]={ //RGBO
-		.name     = "RGB555 (LE)",
-		.fourcc   = V4L2_PIX_FMT_RGB555, /* gggbbbbb arrrrrgg */
-		.depth    = 16,
-		.is_yuv   = false,
-		.pixfmt_out = RGBO,
-	},
-	[FRAMEGRABBER_PIXFMT_RGB555X]={ //RGBQ
-		.name     = "RGB555 (BE)",
-		.fourcc   = V4L2_PIX_FMT_RGB555X, /* arrrrrgg gggbbbbb */
-		.depth    = 16,
-		.is_yuv   = false,
-		.pixfmt_out = RGBQ,
-	},
-	[FRAMEGRABBER_PIXFMT_RGB24]={ //RGB3 index=8
-		.name     = "RGB24 (LE)",
-		.fourcc   = V4L2_PIX_FMT_RGB24, /* rgb */
-		.depth    = 24,
-		.is_yuv   = false,
-		.pixfmt_out = RGB3,
-	},
+[FRAMEGRABBER_PIXFMT_VYUY]={ //VYUY
+.name     = "4:2:2, packed, VYUY",
+.fourcc   = V4L2_PIX_FMT_VYUY,
+.depth    = 16,
+.is_yuv   = true,
+.pixfmt_out = VYUY,
+},
 
-	[FRAMEGRABBER_PIXFMT_BGR24]={ //BGR3
-		.name     = "RGB24 (BE)",
-		.fourcc   = V4L2_PIX_FMT_BGR24, /* bgr */
-		.depth    = 24,
-		.is_yuv   = false,
-		.pixfmt_out = BGR3,
-	},
-	[FRAMEGRABBER_PIXFMT_RGB32]={ //RGB4
-		.name     = "RGB32 (LE)",
-		.fourcc   = V4L2_PIX_FMT_RGB32, /* argb */
-		.depth    = 32,
-		.is_yuv   = false,
-		.pixfmt_out = RGB4,
-	},
-	[FRAMEGRABBER_PIXFMT_BGR32]={ //BGR4
-		.name     = "RGB32 (BE)",
-		.fourcc   = V4L2_PIX_FMT_BGR32, /* bgra */
-		.depth    = 32,
-		.is_yuv   = false,
-		.pixfmt_out = BGR4,
-	},
-	#endif
+[FRAMEGRABBER_PIXFMT_RGB565]={ //RGBP
+.name     = "RGB565 (LE)",
+.fourcc   = V4L2_PIX_FMT_RGB565, /* gggbbbbb rrrrrggg */
+.depth    = 16,
+.is_yuv   = false,
+.pixfmt_out = RGBP,
+},
+[FRAMEGRABBER_PIXFMT_RGB565X]={ //RGBR
+.name     = "RGB565 (BE)",
+.fourcc   = V4L2_PIX_FMT_RGB565X, /* rrrrrggg gggbbbbb */
+.depth    = 16,
+.is_yuv   = false,
+.pixfmt_out = RGBR,
+},
+[FRAMEGRABBER_PIXFMT_RGB555]={ //RGBO
+.name     = "RGB555 (LE)",
+.fourcc   = V4L2_PIX_FMT_RGB555, /* gggbbbbb arrrrrgg */
+.depth    = 16,
+.is_yuv   = false,
+.pixfmt_out = RGBO,
+},
+[FRAMEGRABBER_PIXFMT_RGB555X]={ //RGBQ
+.name     = "RGB555 (BE)",
+.fourcc   = V4L2_PIX_FMT_RGB555X, /* arrrrrgg gggbbbbb */
+.depth    = 16,
+.is_yuv   = false,
+.pixfmt_out = RGBQ,
+},
+[FRAMEGRABBER_PIXFMT_RGB24]={ //RGB3 index=8
+.name     = "RGB24 (LE)",
+.fourcc   = V4L2_PIX_FMT_RGB24, /* rgb */
+.depth    = 24,
+.is_yuv   = false,
+.pixfmt_out = RGB3,
+},
+
+[FRAMEGRABBER_PIXFMT_BGR24]={ //BGR3
+.name     = "RGB24 (BE)",
+.fourcc   = V4L2_PIX_FMT_BGR24, /* bgr */
+.depth    = 24,
+.is_yuv   = false,
+.pixfmt_out = BGR3,
+},
+[FRAMEGRABBER_PIXFMT_RGB32]={ //RGB4
+.name     = "RGB32 (LE)",
+.fourcc   = V4L2_PIX_FMT_RGB32, /* argb */
+.depth    = 32,
+.is_yuv   = false,
+.pixfmt_out = RGB4,
+},
+[FRAMEGRABBER_PIXFMT_BGR32]={ //BGR4
+.name     = "RGB32 (BE)",
+.fourcc   = V4L2_PIX_FMT_BGR32, /* bgra */
+.depth    = 32,
+.is_yuv   = false,
+.pixfmt_out = BGR4,
+},
+#endif
 };
 
 static const int framegrabber_support_refreshrate[]= {
-    [REFRESHRATE_15]=15,
-    [REFRESHRATE_24]=24,
-    [REFRESHRATE_25]=25,
-    [REFRESHRATE_30]=30,
-    [REFRESHRATE_50]=50,
-    [REFRESHRATE_60]=60,
-    [REFRESHRATE_100]=100,
-    [REFRESHRATE_120]=120,
-    [REFRESHRATE_144]=144,
-    [REFRESHRATE_240]=240,
+	[REFRESHRATE_15]=15,
+	[REFRESHRATE_24]=24,
+	[REFRESHRATE_25]=25,
+	[REFRESHRATE_30]=30,
+	[REFRESHRATE_50]=50,
+	[REFRESHRATE_60]=60,
+	[REFRESHRATE_100]=100,
+	[REFRESHRATE_120]=120,
+	[REFRESHRATE_144]=144,
+	[REFRESHRATE_240]=240,
 };
 #define NUM_FRAMERATE_CONTROLS (ARRAY_SIZE(framegrabber_support_refreshrate))
 
@@ -209,7 +209,7 @@ static int  v4l2_model_get_support_framerate(int index)
 	return (framegrabber_support_refreshrate[index]);
 }
 
-static int v4l2_get_suport_VideoFormatIndex(struct v4l2_format *fmt) 
+static int v4l2_get_suport_VideoFormatIndex(struct v4l2_format *fmt)
 {
 	struct v4l2_pix_format *pix = &fmt->fmt.pix;
 	int index;
@@ -227,7 +227,7 @@ static int v4l2_get_suport_VideoFormatIndex(struct v4l2_format *fmt)
 v4l2_model_timing_t *v4l2_model_get_support_videoformat(int index)
 {
 	if(index <0 ||index >=V4L2_MODEL_VIDEOFORMAT_NUM)
-			return NULL;
+		return NULL;
 
 	return (v4l2_model_timing_t *)&support_videofmt[index];
 }
@@ -236,7 +236,7 @@ v4l2_model_timing_t *v4l2_model_get_support_videoformat(int index)
 framegrabber_pixfmt_t *v4l2_model_get_support_pixformat(int index)
 {
 	if(index <0 ||index >=ARRAY_SIZE(support_pixfmts))
-			return NULL;
+		return NULL;
 
 	return (framegrabber_pixfmt_t *)&support_pixfmts[index];
 }
@@ -248,13 +248,13 @@ const framegrabber_pixfmt_t *framegrabber_g_support_pixelfmt_by_fourcc(u32 fourc
 	{
 		if(support_pixfmts[i].fourcc==fourcc)
 		{
-			
+
 			pixfmt_index=i;
 			break;
 		}
 	}
 	if(pixfmt_index==-1)
-			return NULL;
+		return NULL;
 
 	return &support_pixfmts[pixfmt_index];
 }
@@ -280,7 +280,7 @@ static int hws_vidioc_enum_fmt_vid_cap(struct file *file, void *priv_fh,struct v
 	int index = f->index;
 	//printk( "%s(%d)\n", __func__,videodev->index);
 	//printk( "%s(f->index = %d)\n", __func__,f->index);
-	
+
 	if(f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 	{
 		printk("%s.\n",__func__);
@@ -299,19 +299,19 @@ static int hws_vidioc_enum_fmt_vid_cap(struct file *file, void *priv_fh,struct v
 		}
 		else
 		{
-			 pixfmt=v4l2_model_get_support_pixformat(f->index);
-			 if(pixfmt ==NULL) return -EINVAL;
-		    //printk("%s..pixfmt=%d.\n",__func__,f->index);
-		    f->index = index;
-		    f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		    strscpy(f->description, pixfmt->name, sizeof(f->description));
-		    f->pixelformat=pixfmt->fourcc;
+			pixfmt=v4l2_model_get_support_pixformat(f->index);
+			if(pixfmt ==NULL) return -EINVAL;
+			//printk("%s..pixfmt=%d.\n",__func__,f->index);
+			f->index = index;
+			f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+			memcpy(f->description, pixfmt->name, strlen(pixfmt->name));
+			f->pixelformat=pixfmt->fourcc;
 		}
 	}
 	return 0;
 }
 void framegrabber_g_Curr_input_framesize(struct hws_video *dev,int *width,int *height)
-{	
+{
 	struct hws_pcie_dev *pdx = dev->dev;
 	int index = dev->index;
 	*width= pdx->m_pVCAPStatus[index][0].dwWidth;
@@ -344,12 +344,12 @@ static int hws_vidioc_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_for
 		fmt->fmt.pix.colorspace = V4L2_COLORSPACE_REC709;
 		//printk("%s....f->fmt.pix.width=%d.f->fmt.pix.height=%d.\n",__func__,fmt->fmt.pix.width,fmt->fmt.pix.height);
 		return 0;
-	} 
+	}
 
 	return -EINVAL;
 }
 static v4l2_model_timing_t *Get_input_framesizeIndex(int width,int height)
-{	
+{
 	int i;
 	for(i =0;i<V4L2_MODEL_VIDEOFORMAT_NUM;i++)
 	{
@@ -372,9 +372,9 @@ static int hws_vidioc_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_f
 	//printk( "pix->height =%d  pix->width =%d \n", pix->height,pix->width);
 	fmt = framegrabber_g_support_pixelfmt_by_fourcc(pix->pixelformat);
 	if(!fmt)
-    {
+	{
 		printk("%s.. format not support \n",__func__);
-        return -EINVAL;
+		return -EINVAL;
 	}
 	pModeTiming = Get_input_framesizeIndex(pix->width,pix->height);
 	if(!pModeTiming)
@@ -386,25 +386,25 @@ static int hws_vidioc_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_f
 		pix->width=pModeTiming->frame_size.width;
 		pix->height=pModeTiming->frame_size.height;
 		pix->bytesperline = (pix->width * fmt->depth) >> 3;
-		pix->sizeimage =pix->height * pix->bytesperline; 
+		pix->sizeimage =pix->height * pix->bytesperline;
 		pix->colorspace = V4L2_COLORSPACE_REC709;//V4L2_COLORSPACE_SMPTE170M;
 		pix->priv = 0;
-        //return -EINVAL;
+		//return -EINVAL;
 		return 0;
 	}
 	pix->field = V4L2_FIELD_NONE;
 	pix->width=pModeTiming->frame_size.width;
 	pix->height=pModeTiming->frame_size.height;
 	pix->bytesperline = (pix->width * fmt->depth) >> 3;
-	pix->sizeimage =pix->height * pix->bytesperline; 
+	pix->sizeimage =pix->height * pix->bytesperline;
 	pix->colorspace = V4L2_COLORSPACE_REC709;//V4L2_COLORSPACE_SMPTE170M;
 	pix->priv = 0;
-	
-   //printk("%s<<pix->width=%d.pix->height=%d.\n",__func__,pix->width,pix->height);      
+
+	//printk("%s<<pix->width=%d.pix->height=%d.\n",__func__,pix->width,pix->height);
 	return 0;
 
 
-//----------------------------------
+	//----------------------------------
 	return 0;
 }
 static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,struct v4l2_format *f)
@@ -421,14 +421,14 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,struct v4l2_format
 	err = hws_vidioc_try_fmt_vid_cap(file, priv, f);
 	if (0 != err)
 		return err;
-	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);	
+	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
 	videodev->current_out_size_index = nVideoFmtIndex;
 	videodev->pixfmt     = f->fmt.pix.pixelformat;
 	videodev->current_out_width      = f->fmt.pix.width;
 	videodev->curren_out_height     = f->fmt.pix.height;
 	//printk("%s<<  current_out_size_index =%d current_out_width=%d.curren_out_height=%d.\n",__func__,videodev->current_out_size_index,videodev->current_out_width ,videodev->curren_out_height );
 	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
-		return 0;
+	return 0;
 }
 static int hws_vidioc_g_std(struct file *file, void *priv, v4l2_std_id *tvnorms)
 {
@@ -450,20 +450,20 @@ int hws_vidioc_g_parm(struct file *file,void *fh, struct v4l2_streamparm *setfps
 {
 	struct hws_video *videodev = video_drvdata(file);
 	v4l2_model_timing_t *p_SupportmodeTiming;
-	
+
 	//printk( "%s(%d) Frame Rate =%d \n", __func__, videodev->index,io_frame_rate);
 	if (setfps->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 	{
 		printk("%s..\n",__func__);
-	    return -EINVAL;
+		return -EINVAL;
 	}
 	p_SupportmodeTiming = v4l2_model_get_support_videoformat(videodev->current_out_size_index);
 	if(p_SupportmodeTiming ==NULL) return -EINVAL;
-    setfps->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    setfps->parm.capture.timeperframe.numerator=1000;
-    setfps->parm.capture.timeperframe.denominator=p_SupportmodeTiming->refresh_rate*1000;
+	setfps->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	setfps->parm.capture.timeperframe.numerator=1000;
+	setfps->parm.capture.timeperframe.denominator=p_SupportmodeTiming->refresh_rate*1000;
 	//printk( "%s fps =%d \n", __func__, p_SupportmodeTiming->refresh_rate);
-	return 0;	
+	return 0;
 }
 static int hws_vidioc_enum_framesizes(struct file *file, void *fh, struct v4l2_frmsizeenum *fsize)
 {
@@ -511,14 +511,14 @@ static int hws_vidioc_enum_framesizes(struct file *file, void *fh, struct v4l2_f
 	//fsize->discrete.height=height;
 	return 0;
 
-	
+
 }
 
 static int hws_vidioc_enum_input(struct file *file, void *priv,struct v4l2_input *i)
 {
 	//struct hws_video *videodev = video_drvdata(file);
 	int Index;
-	Index = i->index; 
+	Index = i->index;
 	//printk( "%s(%d)-%d Index =%d \n", __func__,videodev->index,i->index,Index);
 	if(Index >0)
 	{
@@ -529,7 +529,7 @@ static int hws_vidioc_enum_input(struct file *file, void *priv,struct v4l2_input
 	i->std = V4L2_STD_NTSC_M;
 	i->capabilities = 0;
 	i->status=0;
-	
+
 	return 0;
 }
 
@@ -539,27 +539,27 @@ static int hws_vidioc_g_input(struct file *file, void *priv, unsigned int *i)
 	int Index;
 	Index = *i;
 	//printk( "%s(%d)-index =%d\n", __func__,videodev->index,Index);
-	
+
 	#if 0
 	if(Index <0 ||Index >=V4L2_MODEL_VIDEOFORMAT_NUM)
 	{
-		return   -EINVAL;
-	}
-	else
-	{
-		*i = Index;
-	}
-	#else
-	if(Index >0)
-	{
-		return   -EINVAL;
-	}
-	else
-	{
-		*i = 0;
-	}	
-	#endif 
-	return 0;
+	return   -EINVAL;
+}
+else
+{
+*i = Index;
+}
+#else
+if(Index >0)
+{
+	return   -EINVAL;
+}
+else
+{
+	*i = 0;
+}
+#endif
+return 0;
 }
 
 static int hws_vidioc_s_input(struct file *file, void *priv, unsigned int i)
@@ -572,16 +572,16 @@ static int hws_vidioc_s_input(struct file *file, void *priv, unsigned int i)
 	Index = i;
 	if(Index <0 ||Index >=V4L2_MODEL_VIDEOFORMAT_NUM)
 	{
-		return   -EINVAL;
-	}
-	p_SupportmodeTiming = v4l2_model_get_support_videoformat(Index);
-	videodev->current_out_size_index = Index;
-	videodev->current_out_width = p_SupportmodeTiming->frame_size.width;
-	videodev->curren_out_height = p_SupportmodeTiming->frame_size.height;
-	printk( "%s(%d)- %dx%d \n", __func__,i,videodev->current_out_width,videodev->curren_out_height);
-	#endif 
-	//printk( "%s(%d)\n", __func__,i);
-	return i ? -EINVAL : 0;
+	return   -EINVAL;
+}
+p_SupportmodeTiming = v4l2_model_get_support_videoformat(Index);
+videodev->current_out_size_index = Index;
+videodev->current_out_width = p_SupportmodeTiming->frame_size.width;
+videodev->curren_out_height = p_SupportmodeTiming->frame_size.height;
+printk( "%s(%d)- %dx%d \n", __func__,i,videodev->current_out_width,videodev->curren_out_height);
+#endif
+//printk( "%s(%d)\n", __func__,i);
+return i ? -EINVAL : 0;
 }
 static int vidioc_log_status(struct file *file, void *priv)
 {
@@ -593,7 +593,7 @@ static ssize_t hws_read(struct file *file,char *buf,size_t count, loff_t *ppos)
 {
 	//printk( "%s()\n", __func__);
 	return -1;
-		
+
 }
 
 static int hws_open(struct file *file)
@@ -603,12 +603,12 @@ static int hws_open(struct file *file)
 	unsigned long flags;
 	struct hws_pcie_dev *pdx = videodev->dev;
 	//printk( "%s(ch-%d)->%d\n", __func__,videodev->index,videodev->fileindex);
-	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags); 
+	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
 	videodev->fileindex ++;
 	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
 	//printk( "%s(ch-%d)END ->%d W=%d H=%d \n", __func__,videodev->index,videodev->fileindex,videodev->current_out_width,videodev->curren_out_height);
 	return 0;
-		
+
 }
 static int hws_release(struct file *file)
 {
@@ -616,14 +616,14 @@ static int hws_release(struct file *file)
 	unsigned long flags;
 	struct hws_pcie_dev *pdx = videodev->dev;
 	//printk( "%s(ch-%d)->%d\n", __func__,videodev->index,videodev->fileindex);
-	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags); 
+	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
 	if(videodev->fileindex>0)
 	{
 		videodev->fileindex --;
 	}
 	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
 	//printk( "%s(ch-%d)->%d done\n", __func__,videodev->index,videodev->fileindex);
-	
+
 	if(videodev->fileindex==0)
 	{
 		if(videodev->startstreamIndex >0)
@@ -638,7 +638,7 @@ static int hws_release(struct file *file)
 	{
 		return 0;
 	}
-		
+
 }
 
 //-------------------
@@ -646,7 +646,7 @@ static const struct v4l2_queryctrl g_no_ctrl = {
 	.name  = "42",
 	.flags = V4L2_CTRL_FLAG_DISABLED,
 };
-static struct v4l2_queryctrl g_hws_ctrls[] = 
+static struct v4l2_queryctrl g_hws_ctrls[] =
 {
 	#if 1
 	{
@@ -655,10 +655,10 @@ static struct v4l2_queryctrl g_hws_ctrls[] =
 		"Brightness",                  //name[32]
 		MIN_VAMP_BRIGHTNESS_UNITS,     //minimum
 		MAX_VAMP_BRIGHTNESS_UNITS,     //maximum
-        1,                             //step
+		1,                             //step
 		BrightnessDefault,             //default_value
 		0,                             //flags
-	    { 0, 0 },                      //reserved[2]
+		{ 0, 0 },                      //reserved[2]
 	},
 	{
 		V4L2_CID_CONTRAST,             //id
@@ -666,10 +666,10 @@ static struct v4l2_queryctrl g_hws_ctrls[] =
 		"Contrast",                    //name[32]
 		MIN_VAMP_CONTRAST_UNITS,       //minimum
 		MAX_VAMP_CONTRAST_UNITS,       //maximum
-        1,                             //step
+		1,                             //step
 		ContrastDefault,               //default_value
 		0,                             //flags
-	    { 0, 0 },                      //reserved[2]
+		{ 0, 0 },                      //reserved[2]
 	},
 	{
 		V4L2_CID_SATURATION,           //id
@@ -677,10 +677,10 @@ static struct v4l2_queryctrl g_hws_ctrls[] =
 		"Saturation",                  //name[32]
 		MIN_VAMP_SATURATION_UNITS,     //minimum
 		MAX_VAMP_SATURATION_UNITS,     //maximum
-        1,                             //step
+		1,                             //step
 		SaturationDefault,             //default_value
 		0,                             //flags
-	    { 0, 0 },                      //reserved[2]
+		{ 0, 0 },                      //reserved[2]
 	},
 	{
 		V4L2_CID_HUE,                  //id
@@ -688,36 +688,36 @@ static struct v4l2_queryctrl g_hws_ctrls[] =
 		"Hue",                         //name[32]
 		MIN_VAMP_HUE_UNITS,            //minimum
 		MAX_VAMP_HUE_UNITS,            //maximum
-        1,                             //step
+		1,                             //step
 		HueDefault,                    //default_value
 		0,                             //flags
-	    { 0, 0 },                      //reserved[2]
+		{ 0, 0 },                      //reserved[2]
 	},
 	#endif
 	#if 0
 	{
-		V4L2_CID_AUTOGAIN,           //id
-		V4L2_CTRL_TYPE_INTEGER,        //type
-		"Hdcp enable",                 //name[32]
-		0,                             //minimum
-		1,                             //maximum
-		1,                             //step
-		0,                             //default_value
-		0,                             //flags
-		{ 0, 0 },                      //reserved[2]
-	},
-	{
-		V4L2_CID_GAIN,           //id
-		V4L2_CTRL_TYPE_INTEGER,        //type
-		"Sample rate",                        //name[32]
-		48000,                             //minimum
-		48000,                             //maximum
-		1,                             //step
-		48000,                             //default_value
-		0,                             //flags
-		{ 0, 0 },                      //reserved[2]
-	}
-	#endif
+	V4L2_CID_AUTOGAIN,           //id
+	V4L2_CTRL_TYPE_INTEGER,        //type
+	"Hdcp enable",                 //name[32]
+	0,                             //minimum
+	1,                             //maximum
+	1,                             //step
+	0,                             //default_value
+	0,                             //flags
+	{ 0, 0 },                      //reserved[2]
+},
+{
+V4L2_CID_GAIN,           //id
+V4L2_CTRL_TYPE_INTEGER,        //type
+"Sample rate",                        //name[32]
+48000,                             //minimum
+48000,                             //maximum
+1,                             //step
+48000,                             //default_value
+0,                             //flags
+{ 0, 0 },                      //reserved[2]
+}
+#endif
 };
 
 #define ARRAY_SIZE_OF_CTRL		(sizeof(g_hws_ctrls)/sizeof(g_hws_ctrls[0]))
@@ -748,28 +748,28 @@ static struct v4l2_queryctrl *find_ctrl(unsigned int id)
 #if 0
 static unsigned int find_Next_Ctl_ID(unsigned int id)
 {
-	int i;
-	int nextID =-1;
-	int curr_index =-1;
-	//scan supported queryctrl table
-	for( i=0; i<ARRAY_SIZE_OF_CTRL; i++ )
-	{
-		if(g_hws_ctrls[i].id==id)
-		{
-			curr_index = i;
-			break;
-		}
-	}
-	if(curr_index != -1)
-	{
-		if((curr_index +1)<ARRAY_SIZE_OF_CTRL)
-		{
-			nextID = g_hws_ctrls[curr_index +1].id;
-		}
-	}
-	return nextID;
+int i;
+int nextID =-1;
+int curr_index =-1;
+//scan supported queryctrl table
+for( i=0; i<ARRAY_SIZE_OF_CTRL; i++ )
+{
+if(g_hws_ctrls[i].id==id)
+{
+curr_index = i;
+break;
 }
-#endif 
+}
+if(curr_index != -1)
+{
+if((curr_index +1)<ARRAY_SIZE_OF_CTRL)
+{
+nextID = g_hws_ctrls[curr_index +1].id;
+}
+}
+return nextID;
+}
+#endif
 int hws_vidioc_g_ctrl(struct file *file, void *fh,struct v4l2_control *a)//
 {
 	struct hws_video *videodev = video_drvdata(file);
@@ -785,42 +785,42 @@ int hws_vidioc_g_ctrl(struct file *file, void *fh,struct v4l2_control *a)//
 	//printk( "%s(ch-%d)\n", __func__,videodev->index);
 	switch( ctrl->id ) {
 		case V4L2_CID_BRIGHTNESS: //0x00980900
-			
-		    //bchs_select = V4L2_BCHS_TYPE_BRIGHTNESS;
-		    //adv7619_get_bchs(v4l2m_context->adv7619_handle,&BCHSinfo,bchs_select);
-            ctrl->value = videodev->m_Curr_Brightness;
-            //printk("%s...brightness(%d)\n",__func__,ctrl->value);
+
+			//bchs_select = V4L2_BCHS_TYPE_BRIGHTNESS;
+			//adv7619_get_bchs(v4l2m_context->adv7619_handle,&BCHSinfo,bchs_select);
+			ctrl->value = videodev->m_Curr_Brightness;
+			//printk("%s...brightness(%d)\n",__func__,ctrl->value);
 			ret = 0;
 			break;
 
 		case V4L2_CID_CONTRAST:
-	
+
 			//bchs_select = V4L2_BCHS_TYPE_CONTRAST;
-		    //printk("%s...contrast(%d)\n",__func__,bchs_select);
-            ctrl->value = videodev->m_Curr_Contrast;
+			//printk("%s...contrast(%d)\n",__func__,bchs_select);
+			ctrl->value = videodev->m_Curr_Contrast;
 			ret = 0;
 			break;
 
 		case V4L2_CID_SATURATION:
-			
+
 			//bchs_select = V4L2_BCHS_TYPE_SATURATION;
-		    //printk("%s...saturation(%d)\n",__func__,bchs_select);
-            ctrl->value = videodev->m_Curr_Saturation;
+			//printk("%s...saturation(%d)\n",__func__,bchs_select);
+			ctrl->value = videodev->m_Curr_Saturation;
 			ret = 0;
 			break;
 
 		case V4L2_CID_HUE:
-		
+
 			//bchs_select = V4L2_BCHS_TYPE_HUE;
-		    //printk("%s...hue(%d)\n",__func__,bchs_select);
-            ctrl->value = videodev->m_Curr_Hue;
+			//printk("%s...hue(%d)\n",__func__,bchs_select);
+			ctrl->value = videodev->m_Curr_Hue;
 			ret = 0;
-			break; // 			
+			break; //
 		default:
-		    ctrl->value =0;
+			ctrl->value =0;
 			printk("control id %d not handled\n", ctrl->id);
-		    break;	
-		
+			break;
+
 	}
 	//printk("%s...ctrl->value(%d)=%x\n",__func__,bchs_select,ctrl->value);
 	return ret;
@@ -842,43 +842,43 @@ int hws_vidioc_s_ctrl(struct file *file, void *fh,struct v4l2_control *a)
 	found_ctrl = find_ctrl(ctrl->id);
 	if( found_ctrl ) {
 		switch( found_ctrl->type ) {
-		case V4L2_CTRL_TYPE_INTEGER:
-			if( ctrl->value >= found_ctrl->minimum 
-				|| ctrl->value <= found_ctrl->maximum ) {
+			case V4L2_CTRL_TYPE_INTEGER:
+				if( ctrl->value >= found_ctrl->minimum
+					|| ctrl->value <= found_ctrl->maximum ) {
 					//printk( "%s(ch-%d ctrl->value =%X )\n", __func__,videodev->index,ctrl->value);
 					switch( ctrl->id ) {
-	                case V4L2_CID_BRIGHTNESS:
-						videodev->m_Curr_Brightness = ctrl->value;               
-		            break;
-	                case V4L2_CID_CONTRAST:
-						videodev->m_Curr_Contrast = ctrl->value;					
-		            break;
-	                case V4L2_CID_HUE:
-						videodev->m_Curr_Hue = ctrl->value;                    
-		            break;
-	                case V4L2_CID_SATURATION:
-						videodev->m_Curr_Saturation = ctrl->value;
-                    break;
+						case V4L2_CID_BRIGHTNESS:
+							videodev->m_Curr_Brightness = ctrl->value;
+							break;
+						case V4L2_CID_CONTRAST:
+							videodev->m_Curr_Contrast = ctrl->value;
+							break;
+						case V4L2_CID_HUE:
+							videodev->m_Curr_Hue = ctrl->value;
+							break;
+						case V4L2_CID_SATURATION:
+							videodev->m_Curr_Saturation = ctrl->value;
+							break;
 
-	                default:
-		            break;
-	            }
-				//printk( "%s(Name:%s value =%X )\n", __func__,found_ctrl->name,ctrl->value);
-				ret = 0;
-			} 
-			else 
-			{
-				//error
-				ret = -ERANGE;
-				printk("control %s out of range\n", found_ctrl->name);
-			}
-			break;
-		default:
-		{
-			//error
-			printk("control type %d not handled\n", found_ctrl->type);
-			}
-			
+						default:
+							break;
+					}
+					//printk( "%s(Name:%s value =%X )\n", __func__,found_ctrl->name,ctrl->value);
+					ret = 0;
+					}
+					else
+					{
+						//error
+						ret = -ERANGE;
+						printk("control %s out of range\n", found_ctrl->name);
+					}
+					break;
+						default:
+						{
+							//error
+							printk("control type %d not handled\n", found_ctrl->type);
+						}
+
 		}
 	}
 	//printk( "%s(ret=%d)\n", __func__,ret);
@@ -887,7 +887,7 @@ int hws_vidioc_s_ctrl(struct file *file, void *fh,struct v4l2_control *a)
 }
 void mem_model_memset(void *s,int c,unsigned int n)
 {
-    memset(s,c,n);
+	memset(s,c,n);
 }
 static int hws_vidioc_queryctrl(struct file *file, void *fh,struct v4l2_queryctrl *a)
 {
@@ -905,47 +905,47 @@ static int hws_vidioc_queryctrl(struct file *file, void *fh,struct v4l2_queryctr
 	{
 		if(id ==0)
 		{
-			 videodev->queryIndex =0;
-			 found_ctrl = find_ctrlByIndex(videodev->queryIndex);
-			 *a = *found_ctrl;
-			 //a->id = a->id|V4L2_CTRL_FLAG_NEXT_CTRL;
-			 //printk("queryctrl[1] Get [%s][0x%X]\n",found_ctrl->name,a->id);
-			 ret = 0;
+			videodev->queryIndex =0;
+			found_ctrl = find_ctrlByIndex(videodev->queryIndex);
+			*a = *found_ctrl;
+			//a->id = a->id|V4L2_CTRL_FLAG_NEXT_CTRL;
+			//printk("queryctrl[1] Get [%s][0x%X]\n",found_ctrl->name,a->id);
+			ret = 0;
 		}
 		else
 		{
-				videodev->queryIndex++; 
-				found_ctrl = find_ctrlByIndex(videodev->queryIndex);
-				 if(found_ctrl!= NULL)
-				 {
-					*a = *found_ctrl;
-					//a->id = a->id|V4L2_CTRL_FLAG_NEXT_CTRL;
-					 //printk("queryctrl[2] Get [%s][0x%X]\n",found_ctrl->name,a->id);
-					ret = 0;
-				 }
-				 else
-				 {
-					*a	= g_no_ctrl;
-					ret = -EINVAL;
-				 }
+			videodev->queryIndex++;
+			found_ctrl = find_ctrlByIndex(videodev->queryIndex);
+			if(found_ctrl!= NULL)
+			{
+				*a = *found_ctrl;
+				//a->id = a->id|V4L2_CTRL_FLAG_NEXT_CTRL;
+				//printk("queryctrl[2] Get [%s][0x%X]\n",found_ctrl->name,a->id);
+				ret = 0;
+			}
+			else
+			{
+				*a	= g_no_ctrl;
+				ret = -EINVAL;
+			}
 
 		}
 
-		
+
 	}
 	else
 	{
 		found_ctrl = find_ctrl(id);
 		if(NULL != found_ctrl)
 		{
-				*a = *found_ctrl;
-				 //printk("queryctrl[3] Get [%s][0x%X]\n",found_ctrl->name,a->id);
-				ret = 0;
+			*a = *found_ctrl;
+			//printk("queryctrl[3] Get [%s][0x%X]\n",found_ctrl->name,a->id);
+			ret = 0;
 		}
 		else
 		{
-				*a	= g_no_ctrl;
-				ret = -EINVAL;
+			*a	= g_no_ctrl;
+			ret = -EINVAL;
 		}
 
 
@@ -956,27 +956,27 @@ static int hws_vidioc_queryctrl(struct file *file, void *fh,struct v4l2_queryctr
 #if 0
 static int hws_vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
-	//struct hws_video *videodev = video_drvdata(file);
-	//printk( "%s(ch-%d)\n", __func__,videodev->index); 
-	#if 0
-	StartVideoCapture(videodev->dev,videodev->index);
-	#endif 
-	return(vb2_ioctl_streamon(file,priv,i));
-	
+//struct hws_video *videodev = video_drvdata(file);
+//printk( "%s(ch-%d)\n", __func__,videodev->index);
+#if 0
+StartVideoCapture(videodev->dev,videodev->index);
+#endif
+return(vb2_ioctl_streamon(file,priv,i));
+
 }
 static int hws_vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type i)
 {
-	//struct hws_video *videodev = video_drvdata(file);
-	//printk( "%s(ch-%d)\n", __func__,videodev->index); 
-	#if 0
-	StopVideoCapture(videodev->dev,videodev->index);
-	#endif 
-	return(vb2_ioctl_streamoff(file,priv,i));
+//struct hws_video *videodev = video_drvdata(file);
+//printk( "%s(ch-%d)\n", __func__,videodev->index);
+#if 0
+StopVideoCapture(videodev->dev,videodev->index);
+#endif
+return(vb2_ioctl_streamoff(file,priv,i));
 
 }
-#endif 
+#endif
 static int hws_vidioc_enum_frameintervals(struct file *file, void *fh,
-                   struct v4l2_frmivalenum *fival)
+										  struct v4l2_frmivalenum *fival)
 {
 	//struct hws_video *videodev = video_drvdata(file);
 	int Index;
@@ -993,12 +993,12 @@ static int hws_vidioc_enum_frameintervals(struct file *file, void *fh,
 	if(FrameRate == -1) return -EINVAL;
 	pModeTiming = Get_input_framesizeIndex(fival->width,fival->height);
 	if(pModeTiming == NULL) return -EINVAL;
-	
-    fival->type = V4L2_FRMIVAL_TYPE_DISCRETE;
+
+	fival->type = V4L2_FRMIVAL_TYPE_DISCRETE;
 	fival->discrete.numerator=1000 ;
 	fival->discrete.denominator=FrameRate*1000;
 	//printk( "%s FrameIndex=%d W=%d H=%d  FrameRate=%d \n", __func__,Index,fival->width,fival->height,FrameRate);
-    return 0;
+	return 0;
 }
 int hws_vidioc_s_parm(struct file *file, void *fh,struct v4l2_streamparm *a)
 {
@@ -1007,7 +1007,7 @@ int hws_vidioc_s_parm(struct file *file, void *fh,struct v4l2_streamparm *a)
 	int in_frame_rate;
 	//int io_widht;
 	//int io_hight;
-	//int io_index; 
+	//int io_index;
 	v4l2_model_timing_t *p_SupportmodeTiming;
 	io_frame_rate = a->parm.capture.timeperframe.denominator/a->parm.capture.timeperframe.numerator;
 	//io_index = a->parm.capture.timeperframe.index;
@@ -1021,12 +1021,12 @@ int hws_vidioc_s_parm(struct file *file, void *fh,struct v4l2_streamparm *a)
 #if 0
 static int hws_vidioc_dqbuf(struct file *file, void *priv, struct v4l2_buffer *p)
 {
-   struct hws_video *videodev = video_drvdata(file);
-   printk( "%s(ch-%d)\n", __func__,videodev->index);
-	//vb2_ioctl_dqbuf
-    return vb2_ioctl_dqbuf(file,priv,p);
+struct hws_video *videodev = video_drvdata(file);
+printk( "%s(ch-%d)\n", __func__,videodev->index);
+//vb2_ioctl_dqbuf
+return vb2_ioctl_dqbuf(file,priv,p);
 }
-#endif 
+#endif
 
 
 
@@ -1074,14 +1074,14 @@ static const struct v4l2_ioctl_ops hws_ioctl_fops = {
 };
 
 static int hws_queue_setup(struct vb2_queue *q,
-			   unsigned int *num_buffers, unsigned int *num_planes,
-			   unsigned int sizes[], struct device *alloc_devs[])
+						   unsigned int *num_buffers, unsigned int *num_planes,
+						   unsigned int sizes[], struct device *alloc_devs[])
 {
 	struct hws_video *videodev = q->drv_priv;
 	struct hws_pcie_dev *pdx = videodev->dev;
 	unsigned long flags;
 	unsigned size;
-	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);	
+	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
 	size = 2* videodev->current_out_width * videodev->curren_out_height; // 16bit
 	//printk( "%s(%d)->%d[%d?=%d]\n", __func__,videodev->index,videodev->fileindex,sizes[0],size);
 	if(videodev->fileindex >1)
@@ -1110,7 +1110,7 @@ static int hws_queue_setup(struct vb2_queue *q,
 	//printk( "%s()  num_buffers:%x tot_bufs:%x\n", __func__,*num_buffers,tot_bufs);
 	//printk( "%s()  sizes[0]= %d size= %d\n", __func__,sizes[0],size);
 	*num_planes = 1;
-	sizes[0] = size; 
+	sizes[0] = size;
 	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
 	return 0;
 }
@@ -1120,13 +1120,13 @@ static int hws_buffer_prepare(struct vb2_buffer *vb)
 
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct hwsvideo_buffer *buf =
-		container_of(vbuf, struct hwsvideo_buffer, vb);
+	container_of(vbuf, struct hwsvideo_buffer, vb);
 	struct hws_video *videodev = vb->vb2_queue->drv_priv;
 	struct hws_pcie_dev *pdx = videodev->dev;
 	u32 size;
 	unsigned long flags;
 	//printk( "%s(W = %d H=%d)\n", __func__,videodev->current_out_width,videodev->curren_out_height);
-	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);	
+	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
 	size = 2* videodev->current_out_width * videodev->curren_out_height; // 16bit
 	if (vb2_plane_size(vb, 0) < size)
 	{
@@ -1136,12 +1136,12 @@ static int hws_buffer_prepare(struct vb2_buffer *vb)
 	vb2_set_plane_payload(vb, 0, size);
 	buf->mem = vb2_plane_vaddr(vb,0);
 	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
-	return 0;	
+	return 0;
 }
 
 static void hws_buffer_finish(struct vb2_buffer *vb)
 {
-	
+
 	//struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	//struct hwsvideo_buffer *buf =
 	//	container_of(vbuf, struct hwsvideo_buffer, vb);
@@ -1155,12 +1155,12 @@ static void hws_buffer_queue(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct hws_video *videodev = vb->vb2_queue->drv_priv;
 	struct hwsvideo_buffer *buf =
-		container_of(vbuf, struct hwsvideo_buffer, vb);
+	container_of(vbuf, struct hwsvideo_buffer, vb);
 	unsigned long flags;
 	struct hws_pcie_dev *pdx = videodev->dev;
-	
+
 	//printk( "%s(%d)\n", __func__,videodev->index);
-	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);	
+	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
 	list_add_tail(&buf->queue, &videodev->queue);
 	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
 }
@@ -1174,32 +1174,32 @@ static int hws_start_streaming(struct vb2_queue *q, unsigned int count)
 	#if 0
 	if(videodev->fileindex >1)
 	{
-		return -EINVAL;
-	}
-	#endif 
-	videodev->seqnr = 0;
-	mdelay(100);
-	//---------------
-	//if(videodev->fileindex==1)
-	//{
-		//printk( "StartVideoCapture %s(%d)->%d\n", __func__,videodev->index,videodev->fileindex);
-		StartVideoCapture(videodev->dev,videodev->index);
-		videodev->startstreamIndex++;
-		//------------------------ reset queue
-   	   //printk( "%s(%d)->%d  reset queue \n", __func__,videodev->index,videodev->fileindex);
-		
-	//}
-	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags); 
-		while (!list_empty(&videodev->queue)) {
-			struct hwsvideo_buffer *buf = list_entry(videodev->queue.next,
-				struct hwsvideo_buffer, queue);
-			list_del(&buf->queue);
-			
-			vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
-		}
-	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
-	//-----------------------
-	return 0;
+	return -EINVAL;
+}
+#endif
+videodev->seqnr = 0;
+mdelay(100);
+//---------------
+//if(videodev->fileindex==1)
+//{
+//printk( "StartVideoCapture %s(%d)->%d\n", __func__,videodev->index,videodev->fileindex);
+StartVideoCapture(videodev->dev,videodev->index);
+videodev->startstreamIndex++;
+//------------------------ reset queue
+//printk( "%s(%d)->%d  reset queue \n", __func__,videodev->index,videodev->fileindex);
+
+//}
+spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
+while (!list_empty(&videodev->queue)) {
+	struct hwsvideo_buffer *buf = list_entry(videodev->queue.next,
+											 struct hwsvideo_buffer, queue);
+	list_del(&buf->queue);
+
+	vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
+}
+spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
+//-----------------------
+return 0;
 }
 
 static void hws_stop_streaming(struct vb2_queue *q)
@@ -1208,11 +1208,11 @@ static void hws_stop_streaming(struct vb2_queue *q)
 	unsigned long flags;
 	struct hws_pcie_dev *pdx = videodev->dev;
 	//printk( "%s(%d)->%d\n", __func__,videodev->index,videodev->fileindex);
-	
+
 	//if(videodev->seqnr){
-		//vb2_wait_for_all_buffers(q);		
+	//vb2_wait_for_all_buffers(q);
 	//	mdelay(100);
-		//printk( "%s() vb2_wait_for_all_buffers\n", __func__);
+	//printk( "%s() vb2_wait_for_all_buffers\n", __func__);
 	//}
 	#if 1
 	//-----------------------------------
@@ -1224,17 +1224,17 @@ static void hws_stop_streaming(struct vb2_queue *q)
 		StopVideoCapture(videodev->dev,videodev->index);
 	}
 	//------------------
-	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);	
+	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
 	while (!list_empty(&videodev->queue)) {
 		struct hwsvideo_buffer *buf = list_entry(videodev->queue.next,
-			struct hwsvideo_buffer, queue);
+												 struct hwsvideo_buffer, queue);
 		list_del(&buf->queue);
 		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 	}
 	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
 	//-----------------------------------------------------------------
-	#endif 
-	
+	#endif
+
 }
 
 static const struct vb2_ops hwspcie_video_qops = {
@@ -1249,79 +1249,79 @@ static const struct vb2_ops hwspcie_video_qops = {
 };
 //-----------------------------------------
 const unsigned char  g_YUVColors [MAX_COLOR][3] = {
-    {128, 16, 128},     // BLACK
-    {128, 235 , 128},    // WHITE
-    {16, 211, 146},     // YELLOW
-    {166, 170, 16},     // CYAN
-    {54, 145, 34},      // GREEN
-    {202, 106, 222},    // MAGENTA
-    {90, 81, 240},      // RED
-    {240, 41, 109},     // BLUE
-    {128, 125, 128},    // GREY
+	{128, 16, 128},     // BLACK
+	{128, 235 , 128},    // WHITE
+	{16, 211, 146},     // YELLOW
+	{166, 170, 16},     // CYAN
+	{54, 145, 34},      // GREEN
+	{202, 106, 222},    // MAGENTA
+	{90, 81, 240},      // RED
+	{240, 41, 109},     // BLUE
+	{128, 125, 128},    // GREY
 };
-	
+
 
 static void SetNoVideoMem(uint8_t * pDest, int  w,int h)
 {
-int x,y;
-uint8_t *pST;
-uint8_t *pNS;
-pST = (uint8_t *)pDest;
-//printk("SetNoVideoMem[%d-%d]\n",w,h);
+	int x,y;
+	uint8_t *pST;
+	uint8_t *pNS;
+	pST = (uint8_t *)pDest;
+	//printk("SetNoVideoMem[%d-%d]\n",w,h);
 
-for(x=0;x<w/2;x++)
-{
-	pST[0] = 41;
-	pST[1] = 240;
-	pST[2] = 41;
-	pST[3] = 109;
-	pST +=4;
-}
+	for(x=0;x<w/2;x++)
+	{
+		pST[0] = 41;
+		pST[1] = 240;
+		pST[2] = 41;
+		pST[3] = 109;
+		pST +=4;
+	}
 
-pNS = pDest+w*2;
-for(y=1;y<h;y++)
-{
-	memcpy(pNS,pDest,w*2);
-	pNS = pNS+w*2;
-}
+	pNS = pDest+w*2;
+	for(y=1;y<h;y++)
+	{
+		memcpy(pNS,pDest,w*2);
+		pNS = pNS+w*2;
+	}
 }
 //---------------------------------------------------
 static int _deliver_samples(struct hws_audio *drv, void *aud_data, u32 aud_len)
 {
-    struct snd_pcm_substream *substream = drv->substream;
-    int elapsed = 0;
-    unsigned int frames = aud_len / (2 * drv->channels);
-    int copy_bytes = 0;
-    unsigned long flags;
+	struct snd_pcm_substream *substream = drv->substream;
+	int elapsed = 0;
+	unsigned int frames = aud_len / (2 * drv->channels);
+	int copy_bytes = 0;
+	unsigned long flags;
 
-    if (frames == 0)
-        return 0;
+	if (frames == 0)
+		return 0;
 
-    if (drv->ring_wpos_byframes + frames > drv->ring_size_byframes) {
-        copy_bytes = (drv->ring_size_byframes - drv->ring_wpos_byframes) * 2 * drv->channels;
-        memcpy(substream->runtime->dma_area + drv->ring_wpos_byframes * 2 * drv->channels,
-                aud_data, copy_bytes);
-        memcpy(substream->runtime->dma_area, aud_data + copy_bytes, aud_len - copy_bytes);
-    } else {
-        memcpy(substream->runtime->dma_area + drv->ring_wpos_byframes * 2 * drv->channels,
-                aud_data, aud_len);
-    }
+	if (drv->ring_wpos_byframes + frames > drv->ring_size_byframes) {
+		copy_bytes = (drv->ring_size_byframes - drv->ring_wpos_byframes) * 2 * drv->channels;
+		memcpy(substream->runtime->dma_area + drv->ring_wpos_byframes * 2 * drv->channels,
+			   aud_data, copy_bytes);
+		memcpy(substream->runtime->dma_area, aud_data + copy_bytes, aud_len - copy_bytes);
+	} else {
+		memcpy(substream->runtime->dma_area + drv->ring_wpos_byframes * 2 * drv->channels,
+			   aud_data, aud_len);
+	}
 
-    spin_lock_irqsave(&drv->ring_lock, flags);
-    drv->ring_wpos_byframes += frames;
-    drv->ring_wpos_byframes %= drv->ring_size_byframes;
-    /* check if a period available */
-    elapsed = (drv->period_used_byframes + frames) / drv->period_size_byframes;
-    drv->period_used_byframes += frames;
-    drv->period_used_byframes %= drv->period_size_byframes;
-    spin_unlock_irqrestore(&drv->ring_lock, flags);
+	spin_lock_irqsave(&drv->ring_lock, flags);
+	drv->ring_wpos_byframes += frames;
+	drv->ring_wpos_byframes %= drv->ring_size_byframes;
+	/* check if a period available */
+	elapsed = (drv->period_used_byframes + frames) / drv->period_size_byframes;
+	drv->period_used_byframes += frames;
+	drv->period_used_byframes %= drv->period_size_byframes;
+	spin_unlock_irqrestore(&drv->ring_lock, flags);
 
-    if (elapsed && substream) {
-        /* snd_pcm_period_elapsed will call SNDRV_PCM_TRIGGER_STOP in somecase */
-        snd_pcm_period_elapsed(drv->substream);
-    }
+	if (elapsed && substream) {
+		/* snd_pcm_period_elapsed will call SNDRV_PCM_TRIGGER_STOP in somecase */
+		snd_pcm_period_elapsed(drv->substream);
+	}
 
-    return frames * 2 * drv->channels;
+	return frames * 2 * drv->channels;
 }
 
 void audio_data_process(struct work_struct *p_work)
@@ -1358,527 +1358,527 @@ void audio_data_process(struct work_struct *p_work)
 	{
 		for( i = 0 ;i<pdx->m_nRDAudioIndex[dwAudioCh];i++)
 		{
-				if(pdx->m_AudioInfo[dwAudioCh].pStatusInfo[i].byLock== MEM_LOCK)
-				{
-						nIndex =i;
-						bBuf = pdx->m_AudioInfo[dwAudioCh].m_pAudioBufData[i];
-						aud_len = pdx->m_AudioInfo[dwAudioCh].pStatusInfo[i].dwLength;
-						break;
-				}
-				
+			if(pdx->m_AudioInfo[dwAudioCh].pStatusInfo[i].byLock== MEM_LOCK)
+			{
+				nIndex =i;
+				bBuf = pdx->m_AudioInfo[dwAudioCh].m_pAudioBufData[i];
+				aud_len = pdx->m_AudioInfo[dwAudioCh].pStatusInfo[i].dwLength;
+				break;
+			}
+
 		}
 	}
 	if((nIndex != -1)&&(bBuf))
 	{
 		//--- send data -------------
-		 delived = _deliver_samples(drv,bBuf, aud_len);
+		delived = _deliver_samples(drv,bBuf, aud_len);
 		#if 0
-		 avail = aud_len - delived;
-		 if(avail)
-		 {
-		 	printk("Sample Rate is wrong  =%d \n",avail);
-		 }
-		#endif 
-		//----------------------------------------------
-		//spin_lock_irqsave(&pdx->audiolock[dwAudioCh], flags);
-		pdx->m_AudioInfo[dwAudioCh].pStatusInfo[nIndex].byLock = MEM_UNLOCK;
-		//spin_unlock_irqrestore(&pdx->audiolock[dwAudioCh], flags);
-		nIndex ++;
-		if(nIndex >=MAX_AUDIO_QUEUE)
+		avail = aud_len - delived;
+		if(avail)
 		{
-			nIndex =0;
-		}
-		pdx->m_nRDAudioIndex[dwAudioCh] = nIndex;
+		printk("Sample Rate is wrong  =%d \n",avail);
+	}
+	#endif
+	//----------------------------------------------
+	//spin_lock_irqsave(&pdx->audiolock[dwAudioCh], flags);
+	pdx->m_AudioInfo[dwAudioCh].pStatusInfo[nIndex].byLock = MEM_UNLOCK;
+	//spin_unlock_irqrestore(&pdx->audiolock[dwAudioCh], flags);
+	nIndex ++;
+	if(nIndex >=MAX_AUDIO_QUEUE)
+	{
+		nIndex =0;
+	}
+	pdx->m_nRDAudioIndex[dwAudioCh] = nIndex;
 	}
 	spin_unlock_irqrestore(&pdx->audiolock[dwAudioCh], flags);
-	
+
 }
 //-------------------------------
 static void FHD_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-//   BYTE*pDestBuf;
-   int *pSrcData;
-   int *pDestData;
-   pSrcBuf = pSrc;
-   pDestData = (int *) pOut;
-   for(y=0;y<in_h;y++)
-   {
-	  switch(y%9)
-	  {
-		case 0:
-		case 2:
-		case 4:
-		case 6:
-	    case 8:
+	int x,y;
+	BYTE*pSrcBuf;
+	//   BYTE*pDestBuf;
+	int *pSrcData;
+	int *pDestData;
+	pSrcBuf = pSrc;
+	pDestData = (int *) pOut;
+	for(y=0;y<in_h;y++)
+	{
+		switch(y%9)
 		{
-		  pSrcBuf = pSrc + (y*in_w*2)+(240*2);
-		  for(x=0;x<(in_w-480);)
-		  {
-			 pSrcData =(int *)pSrcBuf;
-			pDestData[0] = pSrcData[0];
-			pDestData[1] = pSrcData[2];
-			pDestData[2] = pSrcData[4];
-			pDestData[3] = pSrcData[6];
-			pDestData[4] = pSrcData[8];
-			 pSrcBuf +=18*2;
-			 pDestData +=5;
-			 x= x+18;
-		  }
-		  break;
-	  }
-	  case 1:
-	  case 3:
-	  case 5:
-	  case 7:
-	  {
-			break;
-	  }
-	  }
+			case 0:
+			case 2:
+			case 4:
+			case 6:
+			case 8:
+			{
+				pSrcBuf = pSrc + (y*in_w*2)+(240*2);
+				for(x=0;x<(in_w-480);)
+				{
+					pSrcData =(int *)pSrcBuf;
+					pDestData[0] = pSrcData[0];
+					pDestData[1] = pSrcData[2];
+					pDestData[2] = pSrcData[4];
+					pDestData[3] = pSrcData[6];
+					pDestData[4] = pSrcData[8];
+					pSrcBuf +=18*2;
+					pDestData +=5;
+					x= x+18;
+				}
+				break;
+			}
+			case 1:
+			case 3:
+			case 5:
+			case 7:
+			{
+				break;
+			}
+		}
 
-   }
+	}
 
 }
 static void HD_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   //int *pSrcData;
-//   int *pDestData;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   for(y=0;y<(in_h-120);y++)
-   {
+	int y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	//int *pSrcData;
+	//   int *pDestData;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	for(y=0;y<(in_h-120);y++)
+	{
 		memcpy(pDestBuf,(pSrcBuf+60*in_w*2),out_w*2);
 		pDestBuf += out_w*2;
 		pSrcBuf += in_w*2;
-   }
+	}
 
 }
 static void SD_NTSC_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   //int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   //int *pSrcData;
-   //int *pDestData;
-   DWORD dwI;
-   DWORD dwJ;
-   BYTE *pDstYUV;
-   
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   
-  
-   // PAL 720X576  NTSC 720X480
-   pDstYUV =  pDestBuf;	
-   for(dwI =0; dwI <48; dwI++)
-   {
+	//int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	//int *pSrcData;
+	//int *pDestData;
+	DWORD dwI;
+	DWORD dwJ;
+	BYTE *pDstYUV;
+
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+
+
+	// PAL 720X576  NTSC 720X480
+	pDstYUV =  pDestBuf;
+	for(dwI =0; dwI <48; dwI++)
+	{
 		for(dwJ=0; dwJ<out_w; dwJ++)
 		{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
+			pDstYUV[0] = 0x10;
+			pDstYUV[1] = 0x80;
+			pDstYUV +=2;
 		}
 	}
-   pDestBuf += 48*in_w*2;
-   memcpy(pDestBuf,pSrcBuf,in_h*in_w*2);
-   pDestBuf +=in_h*in_w*2; 
-   pDstYUV = pDestBuf;
-  for(dwI =0; dwI <48; dwI++)
-   {
+	pDestBuf += 48*in_w*2;
+	memcpy(pDestBuf,pSrcBuf,in_h*in_w*2);
+	pDestBuf +=in_h*in_w*2;
+	pDstYUV = pDestBuf;
+	for(dwI =0; dwI <48; dwI++)
+	{
 		for(dwJ=0; dwJ<out_w; dwJ++)
 		{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
+			pDstYUV[0] = 0x10;
+			pDstYUV[1] = 0x80;
+			pDstYUV +=2;
 		}
-	} 
+	}
 
 }
 
 static void SD_PAL_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-  // int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-//   int *pSrcData;
-   //int *pDestData;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   // PAL 720X576  NTSC 720X480
-   memcpy(pDestBuf,(pSrcBuf+48*in_w*2),out_h*out_w*2);
-   
+	// int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	//   int *pSrcData;
+	//int *pDestData;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	// PAL 720X576  NTSC 720X480
+	memcpy(pDestBuf,(pSrcBuf+48*in_w*2),out_h*out_w*2);
+
 }
 static void SD_NTSC_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   int dwJ;
-   BYTE*pDstYUV;
-   
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   
-   
-   // PAL 720X480   x*2 =1440,(y-36)*2= 1080
-  
-   //--- 60 line 
-   for(y=0;y<60;y++)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	int dwJ;
+	BYTE*pDstYUV;
+
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+
+
+	// PAL 720X480   x*2 =1440,(y-36)*2= 1080
+
+	//--- 60 line
+	for(y=0;y<60;y++)
+	{
 		pDstYUV = pDestBuf;
 		for(dwJ=0; dwJ<out_w; dwJ++)
 		{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
+			pDstYUV[0] = 0x10;
+			pDstYUV[1] = 0x80;
+			pDstYUV +=2;
 		}
 		pDestBuf +=out_w*2;
-   }
-   //---
-    for(y=0;y<(out_h-120);)
-   {
+	}
+	//---
+	for(y=0;y<(out_h-120);)
+	{
 		pDstYUV = pDestBuf;
 		for(dwJ=0; dwJ<240; dwJ++)
 		{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
+			pDstYUV[0] = 0x10;
+			pDstYUV[1] = 0x80;
+			pDstYUV +=2;
 		}
 		pDestBuf +=240*2;
 		for(x=0;x<720;)
 		{
 
-				pDestBuf[0] = pSrcBuf[0];//y
-				pDestBuf[1] = pSrcBuf[1];//cb
-						
-				pDestBuf[2] = pSrcBuf[0];//y
-				pDestBuf[3] = pSrcBuf[3];//cr
+			pDestBuf[0] = pSrcBuf[0];//y
+			pDestBuf[1] = pSrcBuf[1];//cb
 
-				pDestBuf[4] = pSrcBuf[2];//y
-				pDestBuf[5] = pSrcBuf[1];//cb
-						
-				pDestBuf[6] = pSrcBuf[2];//y
-				pDestBuf[7] = pSrcBuf[3];//cr
+			pDestBuf[2] = pSrcBuf[0];//y
+			pDestBuf[3] = pSrcBuf[3];//cr
 
-				pSrcBuf +=4;
-				pDestBuf +=8;
-				x= x+2;
+			pDestBuf[4] = pSrcBuf[2];//y
+			pDestBuf[5] = pSrcBuf[1];//cb
+
+			pDestBuf[6] = pSrcBuf[2];//y
+			pDestBuf[7] = pSrcBuf[3];//cr
+
+			pSrcBuf +=4;
+			pDestBuf +=8;
+			x= x+2;
 		}
 		pDstYUV = pDestBuf;
 		for(dwJ=0; dwJ<240; dwJ++)
 		{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
+			pDstYUV[0] = 0x10;
+			pDstYUV[1] = 0x80;
+			pDstYUV +=2;
 		}
 		pDestBuf +=240*2;
-		//------------copy line 
+		//------------copy line
 		memcpy(pDestBuf,pDestBuf-(out_w*2),out_w*2);
 		pDestBuf += out_w*2;
 		y = y+2;
 		//------------------
-   }
-   //-- 60 line 
-   	for(y=0;y<60;y++)
-  	 {
+	}
+	//-- 60 line
+	for(y=0;y<60;y++)
+	{
 		pDstYUV = pDestBuf;
 		for(dwJ=0; dwJ<out_w; dwJ++)
 		{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
+			pDstYUV[0] = 0x10;
+			pDstYUV[1] = 0x80;
+			pDstYUV +=2;
 		}
 		pDestBuf +=out_w*2;
-		
- 	}
+
+	}
 	//---
 }
 
 static void SD_PAL_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   int dwJ;
-   BYTE*pDstYUV;
-      pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   // PAL 720X576   x*2 =1440,(y-36)*2= 1080
-   pSrcBuf = pSrcBuf+18*in_w*2;
-   for(y=0;y<out_h;)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	int dwJ;
+	BYTE*pDstYUV;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	// PAL 720X576   x*2 =1440,(y-36)*2= 1080
+	pSrcBuf = pSrcBuf+18*in_w*2;
+	for(y=0;y<out_h;)
+	{
 		pDstYUV = pDestBuf;
 		for(dwJ=0; dwJ<240; dwJ++)
 		{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
+			pDstYUV[0] = 0x10;
+			pDstYUV[1] = 0x80;
+			pDstYUV +=2;
 		}
 		pDestBuf +=240*2;
 		for(x=0;x<720;)
 		{
 
-				pDestBuf[0] = pSrcBuf[0];//y
-				pDestBuf[1] = pSrcBuf[1];//cb
-						
-				pDestBuf[2] = pSrcBuf[0];//y
-				pDestBuf[3] = pSrcBuf[3];//cr
+			pDestBuf[0] = pSrcBuf[0];//y
+			pDestBuf[1] = pSrcBuf[1];//cb
 
-				pDestBuf[4] = pSrcBuf[2];//y
-				pDestBuf[5] = pSrcBuf[1];//cb
-						
-				pDestBuf[6] = pSrcBuf[2];//y
-				pDestBuf[7] = pSrcBuf[3];//cr
+			pDestBuf[2] = pSrcBuf[0];//y
+			pDestBuf[3] = pSrcBuf[3];//cr
 
-				pSrcBuf +=4;
-				pDestBuf +=8;
-				x= x+2;
+			pDestBuf[4] = pSrcBuf[2];//y
+			pDestBuf[5] = pSrcBuf[1];//cb
+
+			pDestBuf[6] = pSrcBuf[2];//y
+			pDestBuf[7] = pSrcBuf[3];//cr
+
+			pSrcBuf +=4;
+			pDestBuf +=8;
+			x= x+2;
 		}
 		pDstYUV = pDestBuf;
 		for(dwJ=0; dwJ<240; dwJ++)
 		{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
+			pDstYUV[0] = 0x10;
+			pDstYUV[1] = 0x80;
+			pDstYUV +=2;
 		}
 		pDestBuf +=240*2;
-		//------------copy line 
+		//------------copy line
 		memcpy(pDestBuf,pDestBuf-(out_w*2),out_w*2);
 		pDestBuf += out_w*2;
 		y = y+2;
 		//------------------
-   }
-   
-   
+	}
+
+
 }
 
 static void SD_PAL_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-  int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-  // int dwJ;
-//   BYTE*pDstYUV;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
- 
-   
-   // PAL 720X576   640X360-> 1280*720
-   pSrcBuf = pSrcBuf+108*in_w*2;
-    for(y=0;y<out_h;)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	// int dwJ;
+	//   BYTE*pDstYUV;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+
+
+	// PAL 720X576   640X360-> 1280*720
+	pSrcBuf = pSrcBuf+108*in_w*2;
+	for(y=0;y<out_h;)
+	{
 		pSrcBuf += 40*2;
 		for(x=0;x<640;)
 		{
 
-				pDestBuf[0] = pSrcBuf[0];//y
-				pDestBuf[1] = pSrcBuf[1];//cb
-						
-				pDestBuf[2] = pSrcBuf[0];//y
-				pDestBuf[3] = pSrcBuf[3];//cr
+			pDestBuf[0] = pSrcBuf[0];//y
+			pDestBuf[1] = pSrcBuf[1];//cb
 
-				pDestBuf[4] = pSrcBuf[2];//y
-				pDestBuf[5] = pSrcBuf[1];//cb
-						
-				pDestBuf[6] = pSrcBuf[2];//y
-				pDestBuf[7] = pSrcBuf[3];//cr
+			pDestBuf[2] = pSrcBuf[0];//y
+			pDestBuf[3] = pSrcBuf[3];//cr
 
-				pSrcBuf +=4;
-				pDestBuf +=8;
-				x= x+2;
+			pDestBuf[4] = pSrcBuf[2];//y
+			pDestBuf[5] = pSrcBuf[1];//cb
+
+			pDestBuf[6] = pSrcBuf[2];//y
+			pDestBuf[7] = pSrcBuf[3];//cr
+
+			pSrcBuf +=4;
+			pDestBuf +=8;
+			x= x+2;
 		}
 		pSrcBuf += 40*2;
-		//------------copy line 
+		//------------copy line
 		memcpy(pDestBuf,pDestBuf-(out_w*2),out_w*2);
 		pDestBuf += out_w*2;
 		y= y+2;
 		//------------------
-   }
-   
-   
+	}
+
+
 }
 static void V1280X1024_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
 
-		BYTE*pSrcBuf;
-		BYTE*pDestBuf;
-		pSrcBuf = pSrc;
-		pDestBuf = pOut;
-		pSrcBuf = pSrcBuf+152*in_w*2;
-		HD_To_FHD_Scaler(pSrcBuf,pDestBuf,1280,720,out_w,out_h);
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	pSrcBuf = pSrcBuf+152*in_w*2;
+	HD_To_FHD_Scaler(pSrcBuf,pDestBuf,1280,720,out_w,out_h);
 }
 void V1280X1024_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-		BYTE*pSrcBuf;
-		BYTE*pDestBuf;
-		pSrcBuf = pSrc;
-		pDestBuf = pOut;
-		pSrcBuf = pSrcBuf+152*in_w*2;
-		memcpy(pDestBuf,pSrcBuf,out_h*out_w*2);
-			
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	pSrcBuf = pSrcBuf+152*in_w*2;
+	memcpy(pDestBuf,pSrcBuf,out_h*out_w*2);
+
 }
 void V1280X1024_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-		BYTE*pSrcBuf;
-		BYTE*pDestBuf;
-		pSrcBuf = pSrc;
-		pDestBuf = pOut;
-		pSrcBuf = pSrcBuf+152*in_w*2;
-		HD_To_800X600_Scaler(pSrcBuf,pDestBuf,1280,720,out_w,out_h);
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	pSrcBuf = pSrcBuf+152*in_w*2;
+	HD_To_800X600_Scaler(pSrcBuf,pDestBuf,1280,720,out_w,out_h);
 
 
 }
 
 void SD_NTSC_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-//   int dwJ;
-   //BYTE*pDstYUV;
-   // PAL 720X480   640X360-> 1280*720
-   pSrcBuf = pSrcBuf+60*in_w*2;
-    for(y=0;y<out_h;)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	//   int dwJ;
+	//BYTE*pDstYUV;
+	// PAL 720X480   640X360-> 1280*720
+	pSrcBuf = pSrcBuf+60*in_w*2;
+	for(y=0;y<out_h;)
+	{
 		pSrcBuf += 40*2;
 		for(x=0;x<640;)
 		{
 
-				pDestBuf[0] = pSrcBuf[0];//y
-				pDestBuf[1] = pSrcBuf[1];//cb
-						
-				pDestBuf[2] = pSrcBuf[0];//y
-				pDestBuf[3] = pSrcBuf[3];//cr
+			pDestBuf[0] = pSrcBuf[0];//y
+			pDestBuf[1] = pSrcBuf[1];//cb
 
-				pDestBuf[4] = pSrcBuf[2];//y
-				pDestBuf[5] = pSrcBuf[1];//cb
-						
-				pDestBuf[6] = pSrcBuf[2];//y
-				pDestBuf[7] = pSrcBuf[3];//cr
+			pDestBuf[2] = pSrcBuf[0];//y
+			pDestBuf[3] = pSrcBuf[3];//cr
 
-				pSrcBuf +=4;
-				pDestBuf +=8;
-				x= x+2;
+			pDestBuf[4] = pSrcBuf[2];//y
+			pDestBuf[5] = pSrcBuf[1];//cb
+
+			pDestBuf[6] = pSrcBuf[2];//y
+			pDestBuf[7] = pSrcBuf[3];//cr
+
+			pSrcBuf +=4;
+			pDestBuf +=8;
+			x= x+2;
 		}
 		pSrcBuf += 40*2;
-		//------------copy line 
+		//------------copy line
 		memcpy(pDestBuf,pDestBuf-(out_w*2),out_w*2);
 		pDestBuf += out_w*2;
 		y= y+2;
 		//------------------
-   }
-   
-   
+	}
+
+
 }
 
 void FHD_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   int *pSrcData;
-   int *pDestData;
-   pSrcBuf = pSrc;
-   pDestData = (int *) pOut;
-   for(y=0;y<in_h;y++)
-   {
-	  if(y%3 != 2)
-	  {
-		  for(x=0;x<in_w;)
-		  {
-			pSrcData =(int *)pSrcBuf;
-			*pDestData = *pSrcData;
-			 if(x%2==1)
-			 {
-				pDestBuf =(BYTE *)pDestData;
-				pDestBuf[1] = pSrcBuf[3];
-				pDestBuf [3] = pSrcBuf[1];
-			 }
-			pDestData +=1;
-			pSrcBuf +=6;
-			x= x+3;
-		  }
-	  }
-	  else
-	  {
-		pSrcBuf += in_w*2;	
-	  }
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	int *pSrcData;
+	int *pDestData;
+	pSrcBuf = pSrc;
+	pDestData = (int *) pOut;
+	for(y=0;y<in_h;y++)
+	{
+		if(y%3 != 2)
+		{
+			for(x=0;x<in_w;)
+			{
+				pSrcData =(int *)pSrcBuf;
+				*pDestData = *pSrcData;
+				if(x%2==1)
+				{
+					pDestBuf =(BYTE *)pDestData;
+					pDestBuf[1] = pSrcBuf[3];
+					pDestBuf [3] = pSrcBuf[1];
+				}
+				pDestData +=1;
+				pSrcBuf +=6;
+				x= x+3;
+			}
+		}
+		else
+		{
+			pSrcBuf += in_w*2;
+		}
 
-   }
+	}
 
 }
 void HD_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-	   
-	   	 int x,y;
-		 BYTE*pSrcBuf;
-		 //BYTE*pDestBuf;
-		 DWORD *pSrcData;
-		 DWORD *pDestData;
-		 int    out_w_size;
-		 //BYTE*pSrcTmp;
-		 BYTE*pDestTmp;
-		 out_w_size = out_w*2;
-		 pDestData = (DWORD *) pOut;
-		 pSrcData = (DWORD *) pSrc;
-		 for(y=0;y<out_h;y++)
-		 {
-			
-				if((y%3)==2)
-				{
-					pSrcBuf = (BYTE*)pDestData;
-					memcpy(pSrcBuf,(BYTE*)(pSrcBuf-out_w_size),out_w_size);
-					pDestData += out_w_size/4;
-				}
-				else
-				{
-				
-					for(x=0;x<out_w;)
-					{
-						*pDestData = *pSrcData;
-						 pDestData ++;
-						 pSrcData++;
-						 
-						*pDestData = *pSrcData;
-						 pDestTmp =(BYTE*)pDestData;
-						 pDestTmp[2] = pDestTmp[0];
-						 pDestData ++;
-						
-						*pDestData = *pSrcData;
-						 pDestTmp =(BYTE*)pDestData;
-						 pDestTmp[0] = pDestTmp[2];
-						 pSrcData++;
-						 pDestData++;
-						 x= x+6;
-					}
-			
-				}
-				
-	   
-		 }
-	   
+
+	int x,y;
+	BYTE*pSrcBuf;
+	//BYTE*pDestBuf;
+	DWORD *pSrcData;
+	DWORD *pDestData;
+	int    out_w_size;
+	//BYTE*pSrcTmp;
+	BYTE*pDestTmp;
+	out_w_size = out_w*2;
+	pDestData = (DWORD *) pOut;
+	pSrcData = (DWORD *) pSrc;
+	for(y=0;y<out_h;y++)
+	{
+
+		if((y%3)==2)
+		{
+			pSrcBuf = (BYTE*)pDestData;
+			memcpy(pSrcBuf,(BYTE*)(pSrcBuf-out_w_size),out_w_size);
+			pDestData += out_w_size/4;
+		}
+		else
+		{
+
+			for(x=0;x<out_w;)
+			{
+				*pDestData = *pSrcData;
+				pDestData ++;
+				pSrcData++;
+
+				*pDestData = *pSrcData;
+				pDestTmp =(BYTE*)pDestData;
+				pDestTmp[2] = pDestTmp[0];
+				pDestData ++;
+
+				*pDestData = *pSrcData;
+				pDestTmp =(BYTE*)pDestData;
+				pDestTmp[0] = pDestTmp[2];
+				pSrcData++;
+				pDestData++;
+				x= x+6;
+			}
+
+		}
+
+
+	}
+
 
 }
 void FHD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   BYTE *pSrcData;
-//   BYTE *pDestData;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   //-- 1920X1080 0->720X480
-   pSrcBuf = pSrcBuf + 60*in_w*2;
-   for(y=0;y<out_h;)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	BYTE *pSrcData;
+	//   BYTE *pDestData;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	//-- 1920X1080 0->720X480
+	pSrcBuf = pSrcBuf + 60*in_w*2;
+	for(y=0;y<out_h;)
+	{
 		pSrcData = pSrcBuf + 240*2;
 		for(x =0;x<720;)
 		{
@@ -1894,34 +1894,34 @@ void FHD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int
 		}
 		pSrcBuf += in_w*4;
 		y= y+1;
-   }
-   
+	}
+
 }
 void FHD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   BYTE *pSrcData;
-   BYTE*pDstYUV;
-//   BYTE *pDestData;
-   int dwJ;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   
-   //-- 1920X1080 0->720X576
-   //-------------------
-   pDstYUV = pDestBuf;
-   for(dwJ=0; dwJ<18*out_w; dwJ++)
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	BYTE *pSrcData;
+	BYTE*pDstYUV;
+	//   BYTE *pDestData;
+	int dwJ;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+
+	//-- 1920X1080 0->720X576
+	//-------------------
+	pDstYUV = pDestBuf;
+	for(dwJ=0; dwJ<18*out_w; dwJ++)
 	{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
+		pDstYUV[0] = 0x10;
+		pDstYUV[1] = 0x80;
+		pDstYUV +=2;
 	}
-   //------------------
-   pDestBuf += 18*out_w*2;
-    for(y=0;y<540;)
-   {
+	//------------------
+	pDestBuf += 18*out_w*2;
+	for(y=0;y<540;)
+	{
 		pSrcData = pSrcBuf + 240*2;
 		for(x =0;x<720;)
 		{
@@ -1937,146 +1937,146 @@ void FHD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int 
 		}
 		pSrcBuf += in_w*4;
 		y= y+1;
-   }
-   //------------
-    pDstYUV = pDestBuf;
-   for(dwJ=0; dwJ<18*out_w; dwJ++)
-	{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
 	}
-   //------------
+	//------------
+	pDstYUV = pDestBuf;
+	for(dwJ=0; dwJ<18*out_w; dwJ++)
+	{
+		pDstYUV[0] = 0x10;
+		pDstYUV[1] = 0x80;
+		pDstYUV +=2;
+	}
+	//------------
 }
 
 void HD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   //int *pSrcData;
-  // int *pDestData;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   //-- 1280X720 ->720X480
-   pSrcBuf = pSrcBuf + 120*in_w*2;
-   for(y=0;y<out_h;)
-   {
+	int y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	//int *pSrcData;
+	// int *pDestData;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	//-- 1280X720 ->720X480
+	pSrcBuf = pSrcBuf + 120*in_w*2;
+	for(y=0;y<out_h;)
+	{
 		memcpy(pDestBuf,pSrcBuf+280*2,out_w*2);
 		pSrcBuf += in_w*2;
 		pDestBuf += out_w*2;
 		y= y+1;
-   }
-   
+	}
+
 }
 void HD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   //int dwJ;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   //BYTE*pDstYUV;
-   //-- 1920X1080 0->720X576
-   pSrcBuf = pSrcBuf + 72*in_w*2;
-   for(y=0;y<out_h;)
-   {
+	int y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	//int dwJ;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	//BYTE*pDstYUV;
+	//-- 1920X1080 0->720X576
+	pSrcBuf = pSrcBuf + 72*in_w*2;
+	for(y=0;y<out_h;)
+	{
 		memcpy(pDestBuf,pSrcBuf+280*2,out_w*2);
 		pSrcBuf += in_w*2;
 		pDestBuf += out_w*2;
 		y= y+1;
-   }
+	}
 }
 void V1280X1024_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-//   BYTE*pDstYUV;
-   //-- 1280X1024 0->720X480
-   pSrcBuf = pSrcBuf + 272*in_w*2; 
-   for(y=0;y<out_h;)
-   {
+	int y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	//   BYTE*pDstYUV;
+	//-- 1280X1024 0->720X480
+	pSrcBuf = pSrcBuf + 272*in_w*2;
+	for(y=0;y<out_h;)
+	{
 		memcpy(pDestBuf,pSrcBuf+280*2,out_w*2);
 		pSrcBuf += in_w*2;
 		pDestBuf += out_w*2;
 		y= y+1;
-   }
+	}
 }
 
 void V1280X1024_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-//   BYTE*pDstYUV;
-   //-- 1280x1024 0->720X576
-   pSrcBuf = pSrcBuf + 224*in_w*2;
-   for(y=0;y<out_h;)
-   {
+	int y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	//   BYTE*pDstYUV;
+	//-- 1280x1024 0->720X576
+	pSrcBuf = pSrcBuf + 224*in_w*2;
+	for(y=0;y<out_h;)
+	{
 		memcpy(pDestBuf,pSrcBuf+280*2,out_w*2);
 		pSrcBuf += in_w*2;
 		pDestBuf += out_w*2;
 		y= y+1;
-   }
+	}
 }
 void All_VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   BYTE *pDstYUV;
-   int  missX=0;
-   int  missY=0;
-   int  dumyX=0;
-   int  dumyY=0;
-   int dwJ; 
-   int  y;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   if(in_w>out_w)
-   {
-		missX = (in_w-out_w)/2;
-   }
-   else
-   {
-   		dumyX = (out_w- in_w)/2;
-
-   }
-   if(in_h>out_h)
-   {
-		missY = (in_h-out_h)/2;
-   }
-   else
-   	{
-		dumyY = (out_h - in_h)/2;
-   }
-   if(dumyY>0)
-   {
-    pDstYUV = pDestBuf;
-	for(dwJ=0; dwJ<(dumyY*out_w); dwJ++)
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	BYTE *pDstYUV;
+	int  missX=0;
+	int  missY=0;
+	int  dumyX=0;
+	int  dumyY=0;
+	int dwJ;
+	int  y;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	if(in_w>out_w)
 	{
+		missX = (in_w-out_w)/2;
+	}
+	else
+	{
+		dumyX = (out_w- in_w)/2;
+
+	}
+	if(in_h>out_h)
+	{
+		missY = (in_h-out_h)/2;
+	}
+	else
+	{
+		dumyY = (out_h - in_h)/2;
+	}
+	if(dumyY>0)
+	{
+		pDstYUV = pDestBuf;
+		for(dwJ=0; dwJ<(dumyY*out_w); dwJ++)
+		{
 			pDstYUV[0] = 0x10;
 			pDstYUV[1] = 0x80;
 			pDstYUV +=2;
+		}
+		pDestBuf = pDestBuf+dumyY*out_w*2;
 	}
-	pDestBuf = pDestBuf+dumyY*out_w*2;
-   }
-   if(missY>0)
-   {
-	  pSrcBuf += missY*in_w*2;
-   }
-   //----------
-   
-   for(y=0;y<(out_h-(dumyY*2));y++)
-   {
-   		if(dumyX>0)
-   		{
-   			pDstYUV = pDestBuf;
+	if(missY>0)
+	{
+		pSrcBuf += missY*in_w*2;
+	}
+	//----------
+
+	for(y=0;y<(out_h-(dumyY*2));y++)
+	{
+		if(dumyX>0)
+		{
+			pDstYUV = pDestBuf;
 			for(dwJ=0; dwJ<dumyX; dwJ++)
 			{
 				pDstYUV[0] = 0x10;
@@ -2089,7 +2089,7 @@ void All_VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h
 		pSrcBuf += in_w*2;
 		pDestBuf += (out_w-(dumyX*2))*2;
 		if(dumyX>0)
-   		{
+		{
 			pDstYUV = pDestBuf;
 			for(dwJ=0; dwJ<dumyX; dwJ++)
 			{
@@ -2099,170 +2099,170 @@ void All_VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h
 			}
 			pDestBuf += dumyX*2;
 		}
-   }
-   if(dumyY>0)
-  {
-  	pDstYUV = pDestBuf;
-	for(dwJ=0; dwJ<(dumyY*out_w); dwJ++)
+	}
+	if(dumyY>0)
 	{
+		pDstYUV = pDestBuf;
+		for(dwJ=0; dwJ<(dumyY*out_w); dwJ++)
+		{
 			pDstYUV[0] = 0x10;
 			pDstYUV[1] = 0x80;
 			pDstYUV +=2;
-	}
+		}
 
-  }
+	}
 
 }
 
 static void UHD_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 
 {
-   int x,y;
-   BYTE*pSrcBuf;
-//   BYTE*pDestBuf;
-   BYTE *pSrcData;
-   BYTE *pDestData;
-   pSrcBuf = pSrc;
-   pDestData = (BYTE *) pOut;
-   for(y=0;y<in_h;y++)
-   {
-	  switch(y%18)
-	  {
-		case 0:
-		case 4:
-		case 8:
-		case 12:
-	    case 16:
+	int x,y;
+	BYTE*pSrcBuf;
+	//   BYTE*pDestBuf;
+	BYTE *pSrcData;
+	BYTE *pDestData;
+	pSrcBuf = pSrc;
+	pDestData = (BYTE *) pOut;
+	for(y=0;y<in_h;y++)
+	{
+		switch(y%18)
 		{
-		  pSrcBuf = pSrc + (y*in_w*2)+(480*2);
-		  for(x=0;x<(in_w-960);)
-		  {
-			 pSrcData =(BYTE *)pSrcBuf;
-			 
-			 pDestData[0] = pSrcData[0];
-			 pDestData[1] = pSrcData[1];
-			 pDestData[2] = pSrcData[8];
-			 pDestData[3] = pSrcData[7];
+			case 0:
+			case 4:
+			case 8:
+			case 12:
+			case 16:
+			{
+				pSrcBuf = pSrc + (y*in_w*2)+(480*2);
+				for(x=0;x<(in_w-960);)
+				{
+					pSrcData =(BYTE *)pSrcBuf;
 
-			 pDestData[4] = pSrcData[16];
-			 pDestData[5] = pSrcData[17];
-			 pDestData[6] = pSrcData[24];
-			 pDestData[7] = pSrcData[23];
+					pDestData[0] = pSrcData[0];
+					pDestData[1] = pSrcData[1];
+					pDestData[2] = pSrcData[8];
+					pDestData[3] = pSrcData[7];
 
-			 pDestData[8] = pSrcData[32];
-			 pDestData[9] = pSrcData[33];
-			 pDestData[10] = pSrcData[36];
-			 pDestData[11] = pSrcData[35];
+					pDestData[4] = pSrcData[16];
+					pDestData[5] = pSrcData[17];
+					pDestData[6] = pSrcData[24];
+					pDestData[7] = pSrcData[23];
 
-			 pDestData[12] = pSrcData[44];
-			 pDestData[13] = pSrcData[45];
-			 pDestData[14] = pSrcData[52];
-			 pDestData[15] = pSrcData[51];
+					pDestData[8] = pSrcData[32];
+					pDestData[9] = pSrcData[33];
+					pDestData[10] = pSrcData[36];
+					pDestData[11] = pSrcData[35];
 
-			 pDestData[16] = pSrcData[60];
-			 pDestData[17] = pSrcData[61];
-			 pDestData[18] = pSrcData[68];
-			 pDestData[19] = pSrcData[67];
-			 
-			 
-			 pSrcBuf +=18*4;
-			 pDestData +=5*4;
-			 x= x+18*2;
-		  }
-		  break;
-	  }
-	  default:
-	  {
-			break;
-	  }
-	  }
+					pDestData[12] = pSrcData[44];
+					pDestData[13] = pSrcData[45];
+					pDestData[14] = pSrcData[52];
+					pDestData[15] = pSrcData[51];
 
-   }
+					pDestData[16] = pSrcData[60];
+					pDestData[17] = pSrcData[61];
+					pDestData[18] = pSrcData[68];
+					pDestData[19] = pSrcData[67];
+
+
+					pSrcBuf +=18*4;
+					pDestData +=5*4;
+					x= x+18*2;
+				}
+				break;
+			}
+			default:
+			{
+				break;
+			}
+		}
+
+	}
 
 }
 static void UHDW_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   //BYTE*pDestBuf;
-   BYTE *pSrcData;
-   BYTE *pDestData;
-   pSrcBuf = pSrc;
-   pDestData = (BYTE *) pOut;
-   for(y=0;y<in_h;y++)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	//BYTE*pDestBuf;
+	BYTE *pSrcData;
+	BYTE *pDestData;
+	pSrcBuf = pSrc;
+	pDestData = (BYTE *) pOut;
+	for(y=0;y<in_h;y++)
+	{
 
-	  switch(y%18)
-	  {
-		case 0:
-		case 4:
-		case 8:
-		case 12:
-	    case 16:
+		switch(y%18)
 		{
-		  pSrcBuf = pSrc + (y*in_w*2)+((480+128)*2);
-		  for(x=0;x<(3840-960);)
-		  {
-			 pSrcData =(BYTE *)pSrcBuf;
-			 
-			 pDestData[0] = pSrcData[0];
-			 pDestData[1] = pSrcData[1];
-			 pDestData[2] = pSrcData[8];
-			 pDestData[3] = pSrcData[7];
+			case 0:
+			case 4:
+			case 8:
+			case 12:
+			case 16:
+			{
+				pSrcBuf = pSrc + (y*in_w*2)+((480+128)*2);
+				for(x=0;x<(3840-960);)
+				{
+					pSrcData =(BYTE *)pSrcBuf;
 
-			 pDestData[4] = pSrcData[16];
-			 pDestData[5] = pSrcData[17];
-			 pDestData[6] = pSrcData[24];
-			 pDestData[7] = pSrcData[23];
+					pDestData[0] = pSrcData[0];
+					pDestData[1] = pSrcData[1];
+					pDestData[2] = pSrcData[8];
+					pDestData[3] = pSrcData[7];
 
-			 pDestData[8] = pSrcData[32];
-			 pDestData[9] = pSrcData[33];
-			 pDestData[10] = pSrcData[36];
-			 pDestData[11] = pSrcData[35];
+					pDestData[4] = pSrcData[16];
+					pDestData[5] = pSrcData[17];
+					pDestData[6] = pSrcData[24];
+					pDestData[7] = pSrcData[23];
 
-			 pDestData[12] = pSrcData[44];
-			 pDestData[13] = pSrcData[45];
-			 pDestData[14] = pSrcData[52];
-			 pDestData[15] = pSrcData[51];
+					pDestData[8] = pSrcData[32];
+					pDestData[9] = pSrcData[33];
+					pDestData[10] = pSrcData[36];
+					pDestData[11] = pSrcData[35];
 
-			 pDestData[16] = pSrcData[60];
-			 pDestData[17] = pSrcData[61];
-			 pDestData[18] = pSrcData[68];
-			 pDestData[19] = pSrcData[67];
-			 
-			 
-			 pSrcBuf +=18*4;
-			 pDestData +=5*4;
-			 x= x+18*2;
-		  }
-		  break;
-	  }
-	  default:
-	  {
-			break;
-	  }
-	  }
+					pDestData[12] = pSrcData[44];
+					pDestData[13] = pSrcData[45];
+					pDestData[14] = pSrcData[52];
+					pDestData[15] = pSrcData[51];
 
-   }
+					pDestData[16] = pSrcData[60];
+					pDestData[17] = pSrcData[61];
+					pDestData[18] = pSrcData[68];
+					pDestData[19] = pSrcData[67];
+
+
+					pSrcBuf +=18*4;
+					pDestData +=5*4;
+					x= x+18*2;
+				}
+				break;
+			}
+			default:
+			{
+				break;
+			}
+		}
+
+	}
 
 }
 
 static void V2560X1440_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   BYTE*pSrcData;
-   //BYTE*pDstYUV;
-	
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-  
-   //-- V2560X1440->1280X720
-   for(y=0;y<out_h;y++)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	BYTE*pSrcData;
+	//BYTE*pDstYUV;
+
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+
+	//-- V2560X1440->1280X720
+	for(y=0;y<out_h;y++)
+	{
 		pSrcData = pSrcBuf + 480*2;
 		for(x =0;x<out_w;)
 		{
@@ -2276,24 +2276,24 @@ static void V2560X1440_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h
 			pSrcData += 8;
 			pDestBuf +=4;
 		}
-		
+
 		pSrcBuf += in_w*4;
-   }
+	}
 
 }
 
 static  void UHD_TO_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-  // BYTE*pDstYUV;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   
-   //-- 3840x2160 0->1920X1080
-   for(y=0;y<out_h;y++)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	// BYTE*pDstYUV;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+
+	//-- 3840x2160 0->1920X1080
+	for(y=0;y<out_h;y++)
+	{
 		for(x =0;x<out_w;)
 		{
 			pDestBuf[0] = pSrcBuf[0];//y
@@ -2307,207 +2307,207 @@ static  void UHD_TO_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w
 			pDestBuf +=4;
 		}
 		pSrcBuf += in_w*2;
-   }
+	}
 }
 static void UHD_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   DWORD *pSrcData;
-   DWORD *pDestData;
-   BYTE*pSrcTmp;
-   BYTE*pDestTmp;
-   
-   pSrcBuf = pSrc;
-   pDestData = (DWORD *) pOut;
-   //----------3840x2160->1280x720
-   for(y=0;y<in_h;y++)
-   {
-	  if(y%3 == 0)
-	  {
-		  for(x=0;x<in_w;)
-		  {
-			 pSrcData =(DWORD *)pSrcBuf;
-			*pDestData = *pSrcData;
-			 pDestTmp =(BYTE *)pDestData;
-			 pSrcData++;
-			 pSrcTmp =(BYTE *)pSrcData;
-			 pDestTmp[2] =  pSrcTmp[2];
-			 pDestTmp[3] =  pSrcTmp[3];
-			 
-			pDestData +=1;
-			pSrcBuf +=12;
-			x= x+6;
-		  }
-	  }
-	  else
-	  {
-		pSrcBuf += in_w*2;	
-	  }
+	int x,y;
+	BYTE*pSrcBuf;
+	DWORD *pSrcData;
+	DWORD *pDestData;
+	BYTE*pSrcTmp;
+	BYTE*pDestTmp;
 
-   }
+	pSrcBuf = pSrc;
+	pDestData = (DWORD *) pOut;
+	//----------3840x2160->1280x720
+	for(y=0;y<in_h;y++)
+	{
+		if(y%3 == 0)
+		{
+			for(x=0;x<in_w;)
+			{
+				pSrcData =(DWORD *)pSrcBuf;
+				*pDestData = *pSrcData;
+				pDestTmp =(BYTE *)pDestData;
+				pSrcData++;
+				pSrcTmp =(BYTE *)pSrcData;
+				pDestTmp[2] =  pSrcTmp[2];
+				pDestTmp[3] =  pSrcTmp[3];
+
+				pDestData +=1;
+				pSrcBuf +=12;
+				x= x+6;
+			}
+		}
+		else
+		{
+			pSrcBuf += in_w*2;
+		}
+
+	}
 
 }
 
 static  void UHD_To_2560x1440_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   DWORD *pSrcData;
-   DWORD *pDestData;
-   BYTE*pSrcTmp;
-   BYTE*pDestTmp;
-   
-   pSrcBuf = pSrc;
-   pDestData = (DWORD *) pOut;
-   //----------3840x2160->2560X1440
-   for(y=0;y<in_h;y++)
-   {
-	  switch(y%6)
-	  {
-		case 0:
-		case 2:
-		case 4:
-		case 5:
+	int x,y;
+	BYTE*pSrcBuf;
+	DWORD *pSrcData;
+	DWORD *pDestData;
+	BYTE*pSrcTmp;
+	BYTE*pDestTmp;
+
+	pSrcBuf = pSrc;
+	pDestData = (DWORD *) pOut;
+	//----------3840x2160->2560X1440
+	for(y=0;y<in_h;y++)
+	{
+		switch(y%6)
 		{
-		  for(x=0;x<in_w;)
-		  {
-			 pSrcData =(DWORD *)pSrcBuf;
-			*pDestData = *pSrcData;
-			 pDestTmp =(BYTE *)pDestData;
-			 pSrcData++;
-			 pSrcTmp =(BYTE *)pSrcData;
-			 pDestTmp[2] =  pSrcTmp[0];
-			 pDestTmp[3] =  pSrcTmp[3];
-			 pDestData +=1;
-			 
-			 pSrcData++;
-			 *pDestData = *pSrcData;
-			 pDestData +=1;
+			case 0:
+			case 2:
+			case 4:
+			case 5:
+			{
+				for(x=0;x<in_w;)
+				{
+					pSrcData =(DWORD *)pSrcBuf;
+					*pDestData = *pSrcData;
+					pDestTmp =(BYTE *)pDestData;
+					pSrcData++;
+					pSrcTmp =(BYTE *)pSrcData;
+					pDestTmp[2] =  pSrcTmp[0];
+					pDestTmp[3] =  pSrcTmp[3];
+					pDestData +=1;
 
-			 pSrcBuf +=12;
-			 x= x+6;
-		  }
-		  break;
-	  	}
-	  	case 1:
-		case 3:
-	  	{
-			pSrcBuf += in_w*2;	
-			break;
-	  	}
-   	}
+					pSrcData++;
+					*pDestData = *pSrcData;
+					pDestData +=1;
 
-   }
+					pSrcBuf +=12;
+					x= x+6;
+				}
+				break;
+			}
+			case 1:
+			case 3:
+			{
+				pSrcBuf += in_w*2;
+				break;
+			}
+		}
+
+	}
 
 }
 static void UHDW_To_2560X1440_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   DWORD *pSrcData;
-   DWORD *pDestData;
-   BYTE*pSrcTmp;
-   BYTE*pDestTmp;
+	int x,y;
+	BYTE*pSrcBuf;
+	DWORD *pSrcData;
+	DWORD *pDestData;
+	BYTE*pSrcTmp;
+	BYTE*pDestTmp;
 
-   pSrcBuf = pSrc;
-   pDestData = (DWORD *) pOut;
-   //----------4096x2160->2560x1440
-   for(y=0;y<in_h;y++)
-   {
-	   switch(y%6)
-	  {
-		case 0:
-		case 2:
-		case 4:
-		case 5:
-	  	{
-		  pSrcData = (DWORD *)(pSrcBuf + 128*2);
-		  for(x=0;x<(in_w-256);)
-		  {
-			*pDestData = *pSrcData;
-			 pDestTmp =(BYTE *)pDestData;
-			 pSrcData++;
-			 pSrcTmp =(BYTE *)pSrcData;
-			 pDestTmp[2] =  pSrcTmp[0];
-			 pDestTmp[3] =  pSrcTmp[3];
-			 pDestData +=1;
-			 pSrcData++;
-			 *pDestData = *pSrcData;
+	pSrcBuf = pSrc;
+	pDestData = (DWORD *) pOut;
+	//----------4096x2160->2560x1440
+	for(y=0;y<in_h;y++)
+	{
+		switch(y%6)
+		{
+			case 0:
+			case 2:
+			case 4:
+			case 5:
+			{
+				pSrcData = (DWORD *)(pSrcBuf + 128*2);
+				for(x=0;x<(in_w-256);)
+				{
+					*pDestData = *pSrcData;
+					pDestTmp =(BYTE *)pDestData;
+					pSrcData++;
+					pSrcTmp =(BYTE *)pSrcData;
+					pDestTmp[2] =  pSrcTmp[0];
+					pDestTmp[3] =  pSrcTmp[3];
+					pDestData +=1;
+					pSrcData++;
+					*pDestData = *pSrcData;
 
-			pDestData +=1;
-			pSrcData +=2;
-			x= x+6;
-		  }
-		  
-		  pSrcBuf += in_w*2;	
-		  break;
+					pDestData +=1;
+					pSrcData +=2;
+					x= x+6;
+				}
+
+				pSrcBuf += in_w*2;
+				break;
+			}
+			case 1:
+			case 3:
+			{
+				pSrcBuf += in_w*2;
+				break;
+			}
 		}
-	   case 1:
-	   case 3:
-	  	{
-		 	pSrcBuf += in_w*2;	
-			break;
-	 	 }
-	   }
 
-   }
+	}
 
 }
 static  void UHDW_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   DWORD *pSrcData;
-   DWORD *pDestData;
-   BYTE*pSrcTmp;
-   BYTE*pDestTmp;
+	int x,y;
+	BYTE*pSrcBuf;
+	DWORD *pSrcData;
+	DWORD *pDestData;
+	BYTE*pSrcTmp;
+	BYTE*pDestTmp;
 
-   pSrcBuf = pSrc;
-   pDestData = (DWORD *) pOut;
-   //----------4096x2160->1280x720
-   for(y=0;y<in_h;y++)
-   {
-	  if(y%3 == 0)
-	  {
-		  pSrcData = (DWORD *)(pSrcBuf + 128*2);
-		  for(x=0;x<(in_w-256);)
-		  {
-			*pDestData = *pSrcData;
-			 pDestTmp =(BYTE *)pDestData;
-			 pSrcData++;
-			 pSrcTmp =(BYTE *)pSrcData;
-			 pDestTmp[2] =  pSrcTmp[0];
-			 pDestTmp[3] =  pSrcTmp[3];
-			 
-			pDestData +=1;
-			pSrcData +=2;
-			x= x+6;
-		  }
-		  pSrcBuf += in_w*2;	
-	  }
-	  else
-	  {
-		 pSrcBuf += in_w*2;	
-	  }
+	pSrcBuf = pSrc;
+	pDestData = (DWORD *) pOut;
+	//----------4096x2160->1280x720
+	for(y=0;y<in_h;y++)
+	{
+		if(y%3 == 0)
+		{
+			pSrcData = (DWORD *)(pSrcBuf + 128*2);
+			for(x=0;x<(in_w-256);)
+			{
+				*pDestData = *pSrcData;
+				pDestTmp =(BYTE *)pDestData;
+				pSrcData++;
+				pSrcTmp =(BYTE *)pSrcData;
+				pDestTmp[2] =  pSrcTmp[0];
+				pDestTmp[3] =  pSrcTmp[3];
 
-   }
+				pDestData +=1;
+				pSrcData +=2;
+				x= x+6;
+			}
+			pSrcBuf += in_w*2;
+		}
+		else
+		{
+			pSrcBuf += in_w*2;
+		}
+
+	}
 
 }
 
 static void UHDW_TO_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   BYTE*pSrcData;
-   //BYTE*pDstYUV;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-  
-   //-- 4096x2160 0->1920X1080
-   for(y=0;y<out_h;y++)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	BYTE*pSrcData;
+	//BYTE*pDstYUV;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+
+	//-- 4096x2160 0->1920X1080
+	for(y=0;y<out_h;y++)
+	{
 		pSrcData = pSrcBuf + 128*2;
 		for(x =0;x<out_w;)
 		{
@@ -2522,86 +2522,86 @@ static void UHDW_TO_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w
 			pDestBuf +=4;
 		}
 		pSrcBuf += in_w*4;
-   }
+	}
 }
 
 static  void V2560X1440_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 
 {
-	   
-	   	 int x,y;
-		 BYTE*pSrcBuf;
-		 BYTE*pDestBuf;
-		 DWORD *pSrcData;
-		 DWORD *pDestData;
-		 int    out_w_size;
-		 BYTE*pSrcTmp;
-		 BYTE*pDestTmp;
-		 out_w_size = out_w*2;
-		 pDestData = (DWORD *) pOut;
-		 pSrcData = (DWORD *) pSrc;
-		 pSrcBuf = pSrc;
-		 pDestBuf = pOut;
-		 //2560X1440 -> 1920X1080
-		 for(y=0;y<in_h;y++)
-		 {
-			
-				if((y%4)==3)
-				{
-					pSrcBuf += in_w*2;
-				}
-				else
-				{
-					 pSrcData =  (DWORD *) pSrcBuf;
-					 pDestData = (DWORD *) pDestBuf;
-					for(x=0;x<in_w;)
-					{
-						*pDestData = *pSrcData;
-						 pDestData ++;
-						 pSrcData++;
-						 
-						*pDestData = *pSrcData;
-						 pDestTmp =(BYTE*)pDestData;
-						 pSrcData++;
-						 pSrcTmp =(BYTE*)pSrcData;
-						 pDestTmp[2] = pSrcTmp[0];
-						 
-						 pDestData ++;
-						 pDestTmp =(BYTE*)pDestData;
-						 pDestTmp[0] = pSrcTmp[2];
-						 pDestTmp[1] = pSrcTmp[1];
-						 pSrcData++;
-						 pSrcTmp =(BYTE*)pSrcData;
-						 pDestTmp[2] = pSrcTmp[2];
-						 pDestTmp[3] = pSrcTmp[3];
 
-						 pSrcData++;
-						 pDestData++;
-						 
-						 x= x+8;
-					}
-					pDestBuf += out_w*2;
-					pSrcBuf += in_w*2; 
-				}
-				
-	   
-		 }
-	   
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	DWORD *pSrcData;
+	DWORD *pDestData;
+	int    out_w_size;
+	BYTE*pSrcTmp;
+	BYTE*pDestTmp;
+	out_w_size = out_w*2;
+	pDestData = (DWORD *) pOut;
+	pSrcData = (DWORD *) pSrc;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+	//2560X1440 -> 1920X1080
+	for(y=0;y<in_h;y++)
+	{
+
+		if((y%4)==3)
+		{
+			pSrcBuf += in_w*2;
+		}
+		else
+		{
+			pSrcData =  (DWORD *) pSrcBuf;
+			pDestData = (DWORD *) pDestBuf;
+			for(x=0;x<in_w;)
+			{
+				*pDestData = *pSrcData;
+				pDestData ++;
+				pSrcData++;
+
+				*pDestData = *pSrcData;
+				pDestTmp =(BYTE*)pDestData;
+				pSrcData++;
+				pSrcTmp =(BYTE*)pSrcData;
+				pDestTmp[2] = pSrcTmp[0];
+
+				pDestData ++;
+				pDestTmp =(BYTE*)pDestData;
+				pDestTmp[0] = pSrcTmp[2];
+				pDestTmp[1] = pSrcTmp[1];
+				pSrcData++;
+				pSrcTmp =(BYTE*)pSrcData;
+				pDestTmp[2] = pSrcTmp[2];
+				pDestTmp[3] = pSrcTmp[3];
+
+				pSrcData++;
+				pDestData++;
+
+				x= x+8;
+			}
+			pDestBuf += out_w*2;
+			pSrcBuf += in_w*2;
+		}
+
+
+	}
+
 
 }
 
 static  void V2560X1440_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
 {
-   int x,y;
-   BYTE*pSrcBuf;
-   BYTE*pDestBuf;
-   //BYTE*pDstYUV;
-   pSrcBuf = pSrc;
-   pDestBuf = pOut;
-   
-   //-- V2560X1440->1280X720
-   for(y=0;y<out_h;y++)
-   {
+	int x,y;
+	BYTE*pSrcBuf;
+	BYTE*pDestBuf;
+	//BYTE*pDstYUV;
+	pSrcBuf = pSrc;
+	pDestBuf = pOut;
+
+	//-- V2560X1440->1280X720
+	for(y=0;y<out_h;y++)
+	{
 		for(x =0;x<out_w;)
 		{
 			pDestBuf[0] = pSrcBuf[0];//y
@@ -2615,7 +2615,7 @@ static  void V2560X1440_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int
 			pDestBuf +=4;
 		}
 		pSrcBuf += in_w*2;
-   }
+	}
 }
 
 //---------------------------------
@@ -2754,7 +2754,7 @@ static int  MemCopyFrame(int nDecoder,BYTE * dest,int nWidth,int nHeight,int int
 	int res_size;
 	BYTE *pSrcBuf;
 	int hf_size;
-	
+
 	nCopySize[0] = len[0];
 	nCopySize[1] = len[1];
 	nCopySize[2] = len[2];
@@ -2774,12 +2774,12 @@ static int  MemCopyFrame(int nDecoder,BYTE * dest,int nWidth,int nHeight,int int
 			return -1;
 		}
 		memcpy(dest,src[0],nCopySize[0]); //
-		dest +=nCopySize[0]; 
+		dest +=nCopySize[0];
 		memcpy(dest,src[1],nCopySize[1]); //
-		dest +=nCopySize[1]; 
+		dest +=nCopySize[1];
 		memcpy(dest,src[2],nCopySize[2]); //
-		dest +=nCopySize[2]; 	
-		memcpy(dest,src[3],nCopySize[3]); //	
+		dest +=nCopySize[2];
+		memcpy(dest,src[3],nCopySize[3]); //
 		//---------------------------
 
 	}
@@ -2798,7 +2798,7 @@ static int  MemCopyFrame(int nDecoder,BYTE * dest,int nWidth,int nHeight,int int
 			//DbgPrint("[LT] nCopySize[0] = %d ?= %d W=%d H=%d \n",nCopySize[0],hf_size,nWidth,nHeight);
 			return -1;
 		}
-		
+
 		pSrcBuf = src[0];
 		line_cnt = nCopySize[0]/(nWidth*2);
 		res_size = nCopySize[0]- (line_cnt*nWidth*2);
@@ -2836,7 +2836,7 @@ static int  MemCopyFrame(int nDecoder,BYTE * dest,int nWidth,int nHeight,int int
 		res_size = nCopySize[1]- (line_cnt*nWidth*2);
 		if(res_size <0)
 		{
-			
+
 			return -1;
 		}
 		//DbgPrint("MemCopyFrame bufer1 nCopySize[1]= %d  res_size=%d line_cnt =%d \n",nCopySize[1],res_size,line_cnt);
@@ -2870,7 +2870,7 @@ static int  MemCopyFrame(int nDecoder,BYTE * dest,int nWidth,int nHeight,int int
 		res_size = nCopySize[2]- line_cnt*nWidth*2;
 		if(res_size <0)
 		{
-			
+
 			return -1;
 		}
 		//DbgPrint("MemCopyFrame bufer2 nCopySize[2]= %d  res_size=%d line_cnt =%d \n",nCopySize[2],res_size,line_cnt);
@@ -2911,9 +2911,9 @@ static int  MemCopyFrame(int nDecoder,BYTE * dest,int nWidth,int nHeight,int int
 			pSrcBuf += nWidth*2;
 			dest += nWidth*2;
 		}
-		
+
 		//-------------------
-		
+
 	}
 	return 0;
 }
@@ -2956,24 +2956,24 @@ void video_data_process(struct work_struct *p_work)
 		in_height = in_height*2;
 	}
 	in_vsize = in_width*in_height*2;
-	
+
 	//printk("video_data_process [%d]dev->m_curr_No_Video[videodev->index] =%d \n",videodev->index,dev->m_curr_No_Video[videodev->index]);
 	//---------------------------
 	if(pdx->m_curr_No_Video[nCh]==0 )
 	{
-		nVindex = -1; 
+		nVindex = -1;
 		if(pdx->m_VideoInfo[nCh].pStatusInfo[pdx->m_nRDVideoIndex[nCh]].byLock == MEM_LOCK)
 		{
-				nVindex =pdx->m_nRDVideoIndex[nCh];
-				bBuf[0]  = pdx->m_VideoInfo[nCh].m_pVideoBufData[nVindex];
-				bBuf[1] = pdx->m_VideoInfo[nCh].m_pVideoBufData1[nVindex];
-				bBuf[2] = pdx->m_VideoInfo[nCh].m_pVideoBufData2[nVindex];
-				bBuf[3] = pdx->m_VideoInfo[nCh].m_pVideoBufData3[nVindex];
-				nCopySize[0] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[0];
-				nCopySize[1] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[1];
-				nCopySize[2] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[2];
-				nCopySize[3] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[3];
-				interlace = pdx->m_VideoInfo[nCh].pStatusInfo[nVindex].dwinterlace;
+			nVindex =pdx->m_nRDVideoIndex[nCh];
+			bBuf[0]  = pdx->m_VideoInfo[nCh].m_pVideoBufData[nVindex];
+			bBuf[1] = pdx->m_VideoInfo[nCh].m_pVideoBufData1[nVindex];
+			bBuf[2] = pdx->m_VideoInfo[nCh].m_pVideoBufData2[nVindex];
+			bBuf[3] = pdx->m_VideoInfo[nCh].m_pVideoBufData3[nVindex];
+			nCopySize[0] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[0];
+			nCopySize[1] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[1];
+			nCopySize[2] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[2];
+			nCopySize[3] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[3];
+			interlace = pdx->m_VideoInfo[nCh].pStatusInfo[nVindex].dwinterlace;
 		}
 		if(nVindex== -1)
 		{
@@ -3004,7 +3004,7 @@ void video_data_process(struct work_struct *p_work)
 		{
 			if(pdx->m_VideoInfo[nCh].pStatusInfo[i].byLock == MEM_LOCK)
 			{
-				pdx->m_VideoInfo[nCh].pStatusInfo[i].byLock = MEM_UNLOCK;		
+				pdx->m_VideoInfo[nCh].pStatusInfo[i].byLock = MEM_UNLOCK;
 			}
 		}
 		//spin_unlock_irqrestore(&pdx->videoslock[nCh], devflags);
@@ -3015,17 +3015,17 @@ void video_data_process(struct work_struct *p_work)
 		//spin_unlock_irqrestore(&videodev->slock, flags);
 		goto vexit;
 	}
-	
+
 	buf = list_entry(videodev->queue.next, struct hwsvideo_buffer, queue);
-	list_del(&buf->queue);	
-	
+	list_del(&buf->queue);
+
 	buf->vb.vb2_buf.timestamp = ktime_get_ns();
 	//buf->vb.field = videodev->pixfmt;
 	buf->vb.field = V4L2_FIELD_NONE;
 	if(buf->mem)
 	{
 		//----------------------
-		// copy data to buffer 
+		// copy data to buffer
 		if(pdx->m_curr_No_Video[nCh]==0 )
 		{
 			out_size = videodev->current_out_width*videodev->curren_out_height*2;
@@ -3049,14 +3049,14 @@ void video_data_process(struct work_struct *p_work)
 			SetNoVideoMem(buf->mem,videodev->current_out_width,videodev->curren_out_height);
 		}
 	}
-	
-		
+
+
 	//----------------------------------------
 	buf->vb.sequence = videodev->seqnr++;
 	vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
 	//printk("vb2_buffer_done [%d]\n",videodev->index);
 	//spin_unlock_irqrestore(&videodev->slock, flags);
-vexit:
+	vexit:
 	//spin_lock_irqsave(&pdx->videoslock[nCh], devflags);
 	if(pdx->m_curr_No_Video[nCh]==0 )
 	{
@@ -3072,7 +3072,7 @@ vexit:
 }
 static void hws_get_video_param(struct hws_pcie_dev *dev,int index)
 {
-	
+
 	//printk( "%s(): %x \n", __func__, index);
 	int width,height;
 	width= dev->m_pVCAPStatus[index][0].dwWidth;
@@ -3089,8 +3089,8 @@ static void hws_get_video_param(struct hws_pcie_dev *dev,int index)
 
 static void hws_adapters_init(struct hws_pcie_dev *dev)
 {
-  int i;
-  for (i = 0; i <MAX_VID_CHANNELS; i++) {
+	int i;
+	for (i = 0; i <MAX_VID_CHANNELS; i++) {
 		hws_get_video_param(dev,i);
 	}
 }
@@ -3117,13 +3117,13 @@ int hws_video_register(struct hws_pcie_dev *dev)
 	//printk("hws_video_register Start\n");
 	for(i=0;i<dev->m_nCurreMaxVideoChl;i++)
 	{
-			//printk("v4l2_device_register[%d]\n",i);
-			err = v4l2_device_register(&dev->pdev->dev, &dev->video[i].v4l2_dev);
-			if(err<0){
-				printk(KERN_ERR " v4l2_device_register 0 error! \n");
-				hws_remove_deviceregister(dev);
-				return -1;
-			}
+		//printk("v4l2_device_register[%d]\n",i);
+		err = v4l2_device_register(&dev->pdev->dev, &dev->video[i].v4l2_dev);
+		if(err<0){
+			printk(KERN_ERR " v4l2_device_register 0 error! \n");
+			hws_remove_deviceregister(dev);
+			return -1;
+		}
 	}
 	//printk("v4l2_device_register end\n");
 	//----------------------------------------------------
@@ -3145,7 +3145,7 @@ int hws_video_register(struct hws_pcie_dev *dev)
 		dev->video[i].m_Curr_Brightness = BrightnessDefault;
 		dev->video[i].m_Curr_Contrast   = ContrastDefault;
 		dev->video[i].m_Curr_Saturation = SaturationDefault;
-		dev->video[i].m_Curr_Hue = HueDefault; 
+		dev->video[i].m_Curr_Hue = HueDefault;
 		//-------------------
 		vdev->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 		vdev->v4l2_dev = &(dev->video[i].v4l2_dev);
@@ -3162,35 +3162,31 @@ int hws_video_register(struct hws_pcie_dev *dev)
 		INIT_LIST_HEAD(&dev->video[i].queue);
 		//printk("v4l2_device_register INT2[%d]\n",i);
 		video_set_drvdata(vdev, &(dev->video[i]));
-		
+
 		q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		q->io_modes = VB2_READ | VB2_MMAP | VB2_USERPTR;
 		//q->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF | VB2_READ;
 		q->gfp_flags = GFP_DMA32;
-		#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0))
-		q->min_buffers_needed = 2;
-		#else
-		q->min_queued_buffers = 2;
-		#endif
+		//q->min_buffers_needed = 2;
 		q->drv_priv = &(dev->video[i]);
 		q->buf_struct_size = sizeof(struct hwsvideo_buffer);
 		q->ops = &hwspcie_video_qops;
-		
+
 		//q->mem_ops = &vb2_dma_contig_memops;
 		//q->mem_ops = &vb2_dma_sg_memops;
 		q->mem_ops = &vb2_vmalloc_memops;
-		
+
 		q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-		
+
 		q->lock = &(dev->video[i].queue_lock);
 		q->dev = &(dev->pdev->dev);
-		vdev->queue = q;	
+		vdev->queue = q;
 		err = vb2_queue_init(q);
 		if(err != 0){
 			printk(KERN_ERR " vb2_queue_init failed !!!!! \n");
-			goto fail;	
+			goto fail;
 		}
-		
+
 		INIT_WORK(&dev->video[i].videowork,video_data_process);
 		#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0))
 		err = video_register_device(vdev, VFL_TYPE_GRABBER,-1);
@@ -3206,7 +3202,7 @@ int hws_video_register(struct hws_pcie_dev *dev)
 	}
 	//printk("hws_video_register End\n");
 	return 0;
-fail:
+	fail:
 	for(i=0;i<dev->m_nCurreMaxVideoChl;i++){
 		vdev = &dev->video[i].vdev;
 		video_unregister_device(vdev);
@@ -3236,22 +3232,22 @@ static const int cs_data_fs[] = {
 };
 #if 1
 static struct snd_pcm_hardware audio_pcm_hardware = {
-    .info 				=	(SNDRV_PCM_INFO_MMAP |
-                             SNDRV_PCM_INFO_INTERLEAVED |
-                             SNDRV_PCM_INFO_BLOCK_TRANSFER |
-                             SNDRV_PCM_INFO_RESUME |
-                             SNDRV_PCM_INFO_MMAP_VALID),
-    .formats 			=	SNDRV_PCM_FMTBIT_S16_LE,
-    .rates 				=   SNDRV_PCM_RATE_48000,
-    .rate_min 			=	48000,
-    .rate_max 			=	48000,
-    .channels_min 		=	2,
-    .channels_max 		=	2,
-    .buffer_bytes_max 	=	64*1024,
-    .period_bytes_min 	=	512,
-    .period_bytes_max 	=	16*1024,
-    .periods_min 		=	2,
-    .periods_max 		=	255,
+	.info 				=	(SNDRV_PCM_INFO_MMAP |
+	SNDRV_PCM_INFO_INTERLEAVED |
+	SNDRV_PCM_INFO_BLOCK_TRANSFER |
+	SNDRV_PCM_INFO_RESUME |
+	SNDRV_PCM_INFO_MMAP_VALID),
+	.formats 			=	SNDRV_PCM_FMTBIT_S16_LE,
+	.rates 				=   SNDRV_PCM_RATE_48000,
+	.rate_min 			=	48000,
+	.rate_max 			=	48000,
+	.channels_min 		=	2,
+	.channels_max 		=	2,
+	.buffer_bytes_max 	=	64*1024,
+	.period_bytes_min 	=	512,
+	.period_bytes_max 	=	16*1024,
+	.periods_min 		=	2,
+	.periods_max 		=	255,
 };
 #else
 static struct snd_pcm_hardware audio_pcm_hardware ={
@@ -3274,33 +3270,33 @@ int hws_pcie_audio_open(struct snd_pcm_substream *substream)
 	struct hws_audio *drv = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
-	
-    drv->sample_rate_out        = 48000;
-    drv->channels               = 2;
+
+	drv->sample_rate_out        = 48000;
+	drv->channels               = 2;
 	//printk(KERN_INFO "%s() index:%x\n",__func__,drv->index);
-    runtime->hw = audio_pcm_hardware;
-    drv->substream = substream;
+	runtime->hw = audio_pcm_hardware;
+	drv->substream = substream;
 	//snd_pcm_hw_constraint_minmax(runtime,SNDRV_PCM_HW_PARAM_RATE,setrate,setrate);
 	return 0;
 }
 
 int hws_pcie_audio_close(struct snd_pcm_substream *substream)
 {
-//	struct hws_audio *chip = snd_pcm_substream_chip(substream);
+	//	struct hws_audio *chip = snd_pcm_substream_chip(substream);
 	//printk(KERN_INFO "%s() \n",__func__);
 	return 0;
-} 
+}
 int hws_pcie_audio_hw_params(struct snd_pcm_substream *substream, struct snd_pcm_hw_params *hw_params)
 {
 	//printk(KERN_INFO "%s() \n",__func__);
 	return snd_pcm_lib_malloc_pages(substream, params_buffer_bytes(hw_params));
-}  
+}
 
 int hws_pcie_audio_hw_free(struct snd_pcm_substream *substream)
 {
 	//printk(KERN_INFO "%s() \n",__func__);
 	return snd_pcm_lib_free_pages(substream);
-} 
+}
 
 int hws_pcie_audio_prepare(struct snd_pcm_substream *substream)
 {
@@ -3310,18 +3306,18 @@ int hws_pcie_audio_prepare(struct snd_pcm_substream *substream)
 	//int i;
 	unsigned long flags;
 	//printk(KERN_INFO "%s() index:%x\n",__func__,drv->index);
-	
+
 	spin_lock_irqsave(&drv->ring_lock, flags);
-    drv->ring_size_byframes = runtime->buffer_size;
-    drv->ring_wpos_byframes = 0;
-    drv->period_size_byframes = runtime->period_size;
-    drv->period_used_byframes = 0;
+	drv->ring_size_byframes = runtime->buffer_size;
+	drv->ring_wpos_byframes = 0;
+	drv->period_size_byframes = runtime->period_size;
+	drv->period_used_byframes = 0;
 	drv->ring_offsize =0;
 	drv->ring_over_size =0;
-    spin_unlock_irqrestore(&drv->ring_lock, flags);
-	
+	spin_unlock_irqrestore(&drv->ring_lock, flags);
+
 	return 0;
-}  
+}
 int hws_pcie_audio_trigger(struct snd_pcm_substream *substream, int cmd)
 {
 	struct hws_audio *chip = snd_pcm_substream_chip(substream);
@@ -3330,16 +3326,16 @@ int hws_pcie_audio_trigger(struct snd_pcm_substream *substream, int cmd)
 		case SNDRV_PCM_TRIGGER_START:
 			//HWS_PCIE_READ(HWS_DMA_BASE(chip->index), HWS_DMA_STATUS);
 			//start dma
-			//HWS_PCIE_WRITE(HWS_INT_BASE, HWS_DMA_MASK(chip->index), 0x00000001); 
+			//HWS_PCIE_WRITE(HWS_INT_BASE, HWS_DMA_MASK(chip->index), 0x00000001);
 			//HWS_PCIE_WRITE(HWS_DMA_BASE(chip->index), HWS_DMA_START, 0x00000001);
-			//printk(KERN_INFO "SNDRV_PCM_TRIGGER_START index:%x\n",chip->index);	
-	 		chip->ring_wpos_byframes = 0;
-        	chip->period_used_byframes = 0;
+			//printk(KERN_INFO "SNDRV_PCM_TRIGGER_START index:%x\n",chip->index);
+			chip->ring_wpos_byframes = 0;
+			chip->period_used_byframes = 0;
 			StartAudioCapture(dev,chip->index);
 			break;
 		case SNDRV_PCM_TRIGGER_STOP:
 			//stop dma
-			//HWS_PCIE_WRITE(HWS_INT_BASE, HWS_DMA_MASK(chip->index), 0x000000000); 
+			//HWS_PCIE_WRITE(HWS_INT_BASE, HWS_DMA_MASK(chip->index), 0x000000000);
 			//HWS_PCIE_WRITE(HWS_DMA_BASE(chip->index), HWS_DMA_START, 0x00000000);
 			//printk(KERN_INFO "SNDRV_PCM_TRIGGER_STOP index:%x\n",chip->index);
 			StopAudioCapture(dev,chip->index);
@@ -3349,7 +3345,7 @@ int hws_pcie_audio_trigger(struct snd_pcm_substream *substream, int cmd)
 			break;
 	}
 	return 0;
-}  
+}
 //-------------------------------------------------
 
 
@@ -3364,9 +3360,9 @@ static snd_pcm_uframes_t hws_pcie_audio_pointer(struct snd_pcm_substream *substr
 	dwAudioCh = drv->index;
 	//printk(KERN_INFO "%s() index:%x\n",__func__,dwAudioCh);
 	spin_lock_irqsave(&drv->ring_lock,flags);  //spin_lock
-    pos = drv->ring_wpos_byframes;
-    spin_unlock_irqrestore(&drv->ring_lock,flags); //spin_unlock
-	 return pos;
+	pos = drv->ring_wpos_byframes;
+	spin_unlock_irqrestore(&drv->ring_lock,flags); //spin_unlock
+	return pos;
 }
 
 struct snd_pcm_ops hws_pcie_pcm_ops ={
@@ -3387,14 +3383,14 @@ int hws_audio_register(struct hws_pcie_dev *dev)
 	int ret;
 	int i;
 	int ai_index;
-	char audioname[100];	  
+	char audioname[100];
 	//printk("hws_audio_register Start\n");
 	ai_index = dev->m_Device_PortID*dev->m_nCurreMaxVideoChl+1;
 	for(i=0;i<dev->m_nCurreMaxVideoChl;i++){
 		sprintf(audioname,"%s %d",HWS_AUDOI_NAME,i+ai_index);
 		//printk("%s\n",audioname);
 		ret = snd_card_new(&dev->pdev->dev, -1, audioname, THIS_MODULE,	sizeof(struct hws_audio), &card);
-	   // ret = snd_card_new(&dev->pdev->dev, audio_index[i], audio_id[i], THIS_MODULE,	sizeof(struct hws_audio), &card);
+		// ret = snd_card_new(&dev->pdev->dev, audio_index[i], audio_id[i], THIS_MODULE,	sizeof(struct hws_audio), &card);
 		if (ret < 0){
 			printk(KERN_ERR "%s() ERROR: snd_card_new failed <%d>\n",__func__, ret);
 			goto fail0;
@@ -3410,26 +3406,26 @@ int hws_audio_register(struct hws_pcie_dev *dev)
 		}
 		dev->audio[i].index=i;
 		dev->audio[i].dev=dev;
-		pcm->private_data = &dev->audio[i];	
+		pcm->private_data = &dev->audio[i];
 		strcpy(pcm->name,audioname);
 		snd_pcm_set_ops(pcm,SNDRV_PCM_STREAM_CAPTURE,&hws_pcie_pcm_ops);
 		//snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,snd_dma_pci_data(dev->pdev), HWS_AUDIO_CELL_SIZE*4, HWS_AUDIO_CELL_SIZE*4);
-		 snd_pcm_lib_preallocate_pages_for_all(
-            pcm,
-            SNDRV_DMA_TYPE_CONTINUOUS,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0))
+		snd_pcm_lib_preallocate_pages_for_all(
+			pcm,
+			SNDRV_DMA_TYPE_CONTINUOUS,
+			#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,19,0))
 			card->dev,
-#else
-            snd_dma_continuous_data(GFP_KERNEL),
-#endif
-            audio_pcm_hardware.buffer_bytes_max,
-            audio_pcm_hardware.buffer_bytes_max
-            );
+			#else
+			snd_dma_continuous_data(GFP_KERNEL),
+											  #endif
+											  audio_pcm_hardware.buffer_bytes_max,
+										audio_pcm_hardware.buffer_bytes_max
+		);
 		//----------------------------
-		  dev->audio[i].sample_rate_out        = 48000;
-    	  dev->audio[i].channels               = 2;
-		  dev->audio[i].resampled_buf_size = dev->audio[i].sample_rate_out * 2/* sample bytes */ * dev->audio[i].channels /* channels */;
-		  //dev->audio[i].resampled_buf = vmalloc(dev->audio[i].resampled_buf_size);  
+		dev->audio[i].sample_rate_out        = 48000;
+		dev->audio[i].channels               = 2;
+		dev->audio[i].resampled_buf_size = dev->audio[i].sample_rate_out * 2/* sample bytes */ * dev->audio[i].channels /* channels */;
+		//dev->audio[i].resampled_buf = vmalloc(dev->audio[i].resampled_buf_size);
 		//if(dev->audio[i].resampled_buf == NULL)
 		//	goto fail1;
 		//-----------------
@@ -3444,9 +3440,9 @@ int hws_audio_register(struct hws_pcie_dev *dev)
 	}
 	//printk("hws_audio_register End\n");
 	return 0;
-fail1:
+	fail1:
 	for(i=0;i<dev->m_nCurreMaxVideoChl;i++){
-		
+
 		if(dev->audio[i].card)
 		{
 			snd_card_free(dev->audio[i].card);
@@ -3458,7 +3454,7 @@ fail1:
 			dev->audio[i].resampled_buf = NULL;
 		}
 	}
-fail0:
+	fail0:
 	return -1;
 }
 //-------------------
@@ -3524,13 +3520,13 @@ static void StopDsp(struct hws_pcie_dev *pdx)
 	printk("[MV] Busy!!! statusreg =%X\n", statusreg);
 	if (statusreg == 0xFFFFFFFF)
 	{
-			return;
+		return;
 	}
 	WRITE_REGISTER_ULONG(pdx,(u32)(CVBS_IN_BASE), 0x10);
 	Check_Busy(pdx);
 	WRITE_REGISTER_ULONG(pdx,( CVBS_IN_BASE + (2 * PCIE_BARADDROFSIZE)), 0x00);
-		
-	
+
+
 }
 static void EnableVideoCapture(struct hws_pcie_dev *pdx,int index,int en)
 {
@@ -3583,409 +3579,409 @@ static void EnableAudioCapture(struct hws_pcie_dev *pdx,int index,int en)
 
 static int SetVideoFormteSize(struct hws_pcie_dev *pdx,int ch,int w,int h)
 {
-	   int hf_size;
-	   int hf_size2;
-	   //int frame_size;
-		if(ch !=0) return -1;
-		
-		hf_size = (w*h*2)/(4*16*128);
-		hf_size = hf_size*16*128;
-		
-		hf_size2 = (w*h*2)/(4*16*128);
-		hf_size2 = w*h*2 -(hf_size2*16*128*3);
-		//if((hf_size2 <0) ||(hf_size2 > m_MaxHWVideoBufferSize)||(hf_size >m_MaxHWVideoBufferSize))
-		if(hf_size2 <0)
-		{
-			return -1;
-		}
-		pdx->m_format[0].dwWidth = w;		 // Image Width	
-		pdx->m_format[1].dwWidth = w;		 // Image Width		
-		pdx->m_format[2].dwWidth = w;		 // Image Width	
-		pdx->m_format[3].dwWidth = w;		 // Image Width	
-		
-		pdx->m_format[0].dwHeight = h;	
-		pdx->m_format[1].dwHeight = h;
-		pdx->m_format[2].dwHeight = h;	
-		pdx->m_format[3].dwHeight = h;
-		
-		pdx->m_format[0].HLAF_SIZE = hf_size; 
-		pdx->m_format[1].HLAF_SIZE = hf_size; 
-		pdx->m_format[2].HLAF_SIZE = hf_size;
-		
-		hf_size2 = hf_size2/(16*128);
-		hf_size2 = (hf_size2+1)*16*128;
-		pdx->m_format[3].HLAF_SIZE = hf_size2;
-		return 1;
-		
+	int hf_size;
+	int hf_size2;
+	//int frame_size;
+	if(ch !=0) return -1;
+
+	hf_size = (w*h*2)/(4*16*128);
+	hf_size = hf_size*16*128;
+
+	hf_size2 = (w*h*2)/(4*16*128);
+	hf_size2 = w*h*2 -(hf_size2*16*128*3);
+	//if((hf_size2 <0) ||(hf_size2 > m_MaxHWVideoBufferSize)||(hf_size >m_MaxHWVideoBufferSize))
+	if(hf_size2 <0)
+	{
+		return -1;
+	}
+	pdx->m_format[0].dwWidth = w;		 // Image Width
+	pdx->m_format[1].dwWidth = w;		 // Image Width
+	pdx->m_format[2].dwWidth = w;		 // Image Width
+	pdx->m_format[3].dwWidth = w;		 // Image Width
+
+	pdx->m_format[0].dwHeight = h;
+	pdx->m_format[1].dwHeight = h;
+	pdx->m_format[2].dwHeight = h;
+	pdx->m_format[3].dwHeight = h;
+
+	pdx->m_format[0].HLAF_SIZE = hf_size;
+	pdx->m_format[1].HLAF_SIZE = hf_size;
+	pdx->m_format[2].HLAF_SIZE = hf_size;
+
+	hf_size2 = hf_size2/(16*128);
+	hf_size2 = (hf_size2+1)*16*128;
+	pdx->m_format[3].HLAF_SIZE = hf_size2;
+	return 1;
+
 }
 
 static void DmaMemFreePool(struct hws_pcie_dev *pdx)
+{
+	//Trace t("DmaMemFreePool()");
+	int	k;
+	int index;
+	unsigned long phyvirt_addr;
+	if(pdx->m_bBufferAllocate == TRUE)
 	{
-		//Trace t("DmaMemFreePool()");
-		int	k;
-		int index;
-		unsigned long phyvirt_addr; 
-		if(pdx->m_bBufferAllocate == TRUE)
+		//---------------
+		for(index=0; index<pdx->m_nMaxChl; index++)
 		{
-			//---------------
-			for(index=0; index<pdx->m_nMaxChl; index++)
+			if(pdx->m_pbyVideoBuffer[index])
 			{
-				if(pdx->m_pbyVideoBuffer[index])
+				//printk("DmaMemFreePool ::m_pbyVideoBuffer = %p\n",  pdx->m_pbyVideoBuffer[index]);
+				#if 0
+				for (phyvirt_addr=(unsigned long)pdx->m_pbyVideoBuffer_area[i]; phyvirt_addr < ((unsigned long)pdx->m_pbyVideoBuffer_area[i] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
 				{
-					//printk("DmaMemFreePool ::m_pbyVideoBuffer = %p\n",  pdx->m_pbyVideoBuffer[index]);
-					#if 0
-					for (phyvirt_addr=(unsigned long)pdx->m_pbyVideoBuffer_area[i]; phyvirt_addr < ((unsigned long)pdx->m_pbyVideoBuffer_area[i] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE) 
+				// clear all pages
+				ClearPageReserved(virt_to_page(phyvirt_addr));
+			}
+			kfree(pdx->m_pbyVideoBuffer[i]);
+			#else
+			dma_free_coherent(&pdx->pdev->dev, pdx->m_MaxHWVideoBufferSize, pdx->m_pbyVideoBuffer[index], pdx->m_pbyVideo_phys[index]);
+			#endif
+			pdx->m_pbyVideoBuffer[index] = NULL;
+			}
+		}
+		//----------------------------------------------------
+		for(index=0; index<pdx->m_nCurreMaxVideoChl;index++)
+		{
+			//printk("DmaMemFreePool ::m_pVideoScalerBuf = %p\n",  pdx->m_VideoInfo[index].m_pVideoScalerBuf);
+			if(pdx->m_VideoInfo[index].m_pVideoScalerBuf !=NULL)
+			{
+				vfree(pdx->m_VideoInfo[index].m_pVideoScalerBuf);
+				pdx->m_VideoInfo[index].m_pVideoScalerBuf = NULL;
+			}
+			for( k=0; k<MAX_VIDEO_QUEUE;k++)
+			{
+				//-------------------------
+				//printk("DmaMemFreePool ::m_pVideoBufData[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData[k]);
+				if(pdx->m_VideoInfo[index].m_pVideoBufData[k])
+				{
+					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
 					{
 						// clear all pages
 						ClearPageReserved(virt_to_page(phyvirt_addr));
 					}
-					kfree(pdx->m_pbyVideoBuffer[i]);
-					#else
-						dma_free_coherent(&pdx->pdev->dev, pdx->m_MaxHWVideoBufferSize, pdx->m_pbyVideoBuffer[index], pdx->m_pbyVideo_phys[index]);
-					#endif 
-					pdx->m_pbyVideoBuffer[index] = NULL;
-				}				
+					kfree(pdx->m_VideoInfo[index].m_pVideoBufData[k]);
+					pdx->m_VideoInfo[index].m_pVideoBufData[k] = NULL;
+				}
+				//---------------------------------
+				//-------------------------
+				//printk("DmaMemFreePool ::m_pVideoBufData1[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData1[k]);
+				if(pdx->m_VideoInfo[index].m_pVideoBufData1[k])
+				{
+					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
+					{
+						// clear all pages
+						ClearPageReserved(virt_to_page(phyvirt_addr));
+					}
+					kfree(pdx->m_VideoInfo[index].m_pVideoBufData1[k]);
+					pdx->m_VideoInfo[index].m_pVideoBufData1[k] = NULL;
+				}
+				//---------------------------------
+				//-------------------------
+				//printk("DmaMemFreePool ::m_pVideoBufData2[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData2[k]);
+				if(pdx->m_VideoInfo[index].m_pVideoBufData2[k])
+				{
+					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
+					{
+						// clear all pages
+						ClearPageReserved(virt_to_page(phyvirt_addr));
+					}
+					kfree(pdx->m_VideoInfo[index].m_pVideoBufData2[k]);
+					pdx->m_VideoInfo[index].m_pVideoBufData2[k] = NULL;
+				}
+				//---------------------------------
+				//-------------------------
+				//printk("DmaMemFreePool ::m_pVideoBufData3[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData3[k]);
+				if(pdx->m_VideoInfo[index].m_pVideoBufData3[k])
+				{
+					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
+					{
+						// clear all pages
+						ClearPageReserved(virt_to_page(phyvirt_addr));
+					}
+					kfree(pdx->m_VideoInfo[index].m_pVideoBufData3[k]);
+					pdx->m_VideoInfo[index].m_pVideoBufData3[k] = NULL;
+				}
+				//---------------------------------
+
 			}
-			//----------------------------------------------------
-			for(index=0; index<pdx->m_nCurreMaxVideoChl;index++)
+			//----audio release
+			for( k=0; k<MAX_AUDIO_QUEUE;k++)
 			{
-				//printk("DmaMemFreePool ::m_pVideoScalerBuf = %p\n",  pdx->m_VideoInfo[index].m_pVideoScalerBuf);
-				if(pdx->m_VideoInfo[index].m_pVideoScalerBuf !=NULL)
+				if(pdx->m_AudioInfo[index].m_pAudioBufData[k])
 				{
-					vfree(pdx->m_VideoInfo[index].m_pVideoScalerBuf);
-					pdx->m_VideoInfo[index].m_pVideoScalerBuf = NULL;
+					for (phyvirt_addr=(unsigned long)pdx->m_AudioInfo[index].m_pAudioData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_AudioInfo[index].m_pAudioData_area[k] + pdx->m_dwAudioPTKSize);phyvirt_addr+=PAGE_SIZE)
+					{
+						// clear all pages
+						ClearPageReserved(virt_to_page(phyvirt_addr));
+					}
+					kfree(pdx->m_AudioInfo[index].m_pAudioBufData[k]);
+					pdx->m_AudioInfo[index].m_pAudioBufData[k] = NULL;
 				}
-				for( k=0; k<MAX_VIDEO_QUEUE;k++)
-				{
-					//-------------------------
-					//printk("DmaMemFreePool ::m_pVideoBufData[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData[k]);
-					if(pdx->m_VideoInfo[index].m_pVideoBufData[k])
-					{
-						for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE) 
-						{
-								// clear all pages
-							ClearPageReserved(virt_to_page(phyvirt_addr));
-						}
-						kfree(pdx->m_VideoInfo[index].m_pVideoBufData[k]);  
-						pdx->m_VideoInfo[index].m_pVideoBufData[k] = NULL;
-					}
-					//---------------------------------
-					//-------------------------
-					//printk("DmaMemFreePool ::m_pVideoBufData1[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData1[k]);
-					if(pdx->m_VideoInfo[index].m_pVideoBufData1[k])
-					{
-						for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE) 
-						{
-								// clear all pages
-								ClearPageReserved(virt_to_page(phyvirt_addr));
-						}
-						kfree(pdx->m_VideoInfo[index].m_pVideoBufData1[k]);  
-						pdx->m_VideoInfo[index].m_pVideoBufData1[k] = NULL;
-					}
-					//---------------------------------
-					//-------------------------
-					//printk("DmaMemFreePool ::m_pVideoBufData2[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData2[k]);
-					if(pdx->m_VideoInfo[index].m_pVideoBufData2[k])
-					{
-						for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE) 
-						{
-								// clear all pages
-								ClearPageReserved(virt_to_page(phyvirt_addr));
-						}
-						kfree(pdx->m_VideoInfo[index].m_pVideoBufData2[k]);  
-						pdx->m_VideoInfo[index].m_pVideoBufData2[k] = NULL;
-					}
-					//---------------------------------
-					//-------------------------
-					//printk("DmaMemFreePool ::m_pVideoBufData3[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData3[k]);
-					if(pdx->m_VideoInfo[index].m_pVideoBufData3[k])
-					{
-						for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE) 
-						{
-								// clear all pages
-								ClearPageReserved(virt_to_page(phyvirt_addr));
-						}
-						kfree(pdx->m_VideoInfo[index].m_pVideoBufData3[k]);  
-						pdx->m_VideoInfo[index].m_pVideoBufData3[k] = NULL;
-					}
-					//---------------------------------
-					
-				}
-				//----audio release
-				for( k=0; k<MAX_AUDIO_QUEUE;k++)
-				{
-					if(pdx->m_AudioInfo[index].m_pAudioBufData[k])
-					{
-						for (phyvirt_addr=(unsigned long)pdx->m_AudioInfo[index].m_pAudioData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_AudioInfo[index].m_pAudioData_area[k] + pdx->m_dwAudioPTKSize);phyvirt_addr+=PAGE_SIZE) 
-						{
-								// clear all pages
-								ClearPageReserved(virt_to_page(phyvirt_addr));
-						}
-						kfree(pdx->m_AudioInfo[index].m_pAudioBufData[k]);  
-						pdx->m_AudioInfo[index].m_pAudioBufData[k] = NULL;
-					}
-				}
-				
 			}
-			pdx->m_bBufferAllocate = FALSE;
+
 		}
+		pdx->m_bBufferAllocate = FALSE;
 	}
+}
 
 
 static int  DmaMemAllocPool(struct hws_pcie_dev *pdx)
+{
+	u32			status	= 0;
+	uint8_t				i,k;
+	dma_addr_t phy_addr;
+	int  index;
+	unsigned long phyvirt_addr;
+	if(pdx->m_bBufferAllocate == TRUE)
 	{
-		u32			status	= 0;
-		uint8_t				i,k;
-        dma_addr_t phy_addr;
-		int  index;
-		unsigned long phyvirt_addr; 
-		if(pdx->m_bBufferAllocate == TRUE)
-		{
-			DmaMemFreePool(pdx);
-		}
-		//------------
-		for(i=0; i<pdx->m_nMaxChl; i++)
-		{
-		
-			//printk("kmalloc [%d]size=%X************\n", i,pdx->m_MaxHWVideoBufferSize);
-			pdx->m_pbyVideoBuffer[i] = dma_alloc_coherent(&pdx->pdev->dev, pdx->m_MaxHWVideoBufferSize, &pdx->m_pbyVideo_phys[i], GFP_KERNEL);
+		DmaMemFreePool(pdx);
+	}
+	//------------
+	for(i=0; i<pdx->m_nMaxChl; i++)
+	{
 
-			
-			if(pdx->m_pbyVideoBuffer[i]== NULL)
+		//printk("kmalloc [%d]size=%X************\n", i,pdx->m_MaxHWVideoBufferSize);
+		pdx->m_pbyVideoBuffer[i] = dma_alloc_coherent(&pdx->pdev->dev, pdx->m_MaxHWVideoBufferSize, &pdx->m_pbyVideo_phys[i], GFP_KERNEL);
+
+
+		if(pdx->m_pbyVideoBuffer[i]== NULL)
+		{
+			printk("m_pbyVideoBuffer[%d] mem Allocate Fail ************\n", i);
+			pdx->m_bBufferAllocate = TRUE;
+			DmaMemFreePool(pdx);
+			pdx->m_bBufferAllocate = FALSE;
+			status = -1;
+			return status;
+		}
+		#if 0
+		pdx->m_pbyVideoBuffer_area[i] = (char *)(((unsigned long)pdx->m_pbyVideoBuffer[i] + PAGE_SIZE -1) & PAGE_MASK);
+		for (phyvirt_addr=(unsigned long)pdx->m_pbyVideoBuffer_area[i]; phyvirt_addr < ((unsigned long)pdx->m_pbyVideoBuffer_area[i] + (pdx->m_MaxHWVideoBufferSize));
+		phyvirt_addr+=PAGE_SIZE)
+		{
+		// reserve all pages to make them remapable
+		SetPageReserved(virt_to_page(phyvirt_addr));
+	}
+	memset(pdx->m_pbyVideoBuffer[i] , 0x0,(pdx->m_MaxHWVideoBufferSize) );
+	phy_addr= (dma_addr_t)virt_to_phys(pdx->m_pbyVideoBuffer[i]);
+	pdx->m_pbyVideo_phys[i] = phy_addr;
+	#else
+	phy_addr = 	pdx->m_pbyVideo_phys[i];
+	#endif
+	//printk("PHY= %X=%X\n",phy_addr,pdx->m_pbyVideo_phys[i]);
+
+	pdx->m_dwVideoBuffer[i] = 	  ((u64)phy_addr)&0xFFFFFFFF;
+	pdx->m_dwVideoHighBuffer[i] = ((u64)phy_addr>>32)&0xFFFFFFFF;;
+
+	pdx->m_pbyAudioBuffer[i] = (BYTE *)(pdx->m_pbyVideoBuffer[i] + pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE );
+	#if 0
+	phy_addr= (dma_addr_t)virt_to_phys(pdx->m_pbyAudioBuffer[i]);
+	#else
+	phy_addr = pdx->m_pbyVideo_phys[i] + (pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE);
+	#endif
+	pdx->m_pbyAudio_phys[i] = phy_addr;
+
+	pdx->m_dwAudioBuffer[i] =    pdx->m_dwVideoBuffer[i]+ pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE;
+	pdx->m_dwAudioBufferHigh[i] = pdx->m_dwVideoHighBuffer[i];
+	//printk("[MV]Mem Video::m_dwVideoBuffer[%d] = %x\n", i, pdx->m_dwVideoBuffer[i]);
+	//printk("[MV]Mem Video::m_dwVideoHighBuffer[%d] = %x\n", i, pdx->m_dwVideoHighBuffer[i]);
+	//printk("[MV]Mem Audio::m_dwAudioBuffer[%d] = %x\n", i, pdx->m_dwAudioBuffer[i]);
+	//printk("[MV]Mem Audio::m_dwAudioBufferHigh[%d] = %x\n", i, pdx->m_dwAudioBufferHigh[i]);
+
+	}
+
+
+	//KdPrint(("Mem allocate::m_dwAudioBuffer[%d] = %x\n", i, pdx->m_dwAudioBuffer));
+	//-------------- video buffer
+	for(index=0; index<pdx->m_nCurreMaxVideoChl; index++)
+	{
+		pdx->m_VideoInfo[index].m_pVideoScalerBuf = vmalloc(MAX_VIDEO_HW_W*MAX_VIDEO_HW_H*2);
+		if(pdx->m_VideoInfo[index].m_pVideoScalerBuf ==NULL)
+		{
+			pdx->m_bBufferAllocate = TRUE;
+			DmaMemFreePool(pdx);
+			pdx->m_bBufferAllocate = FALSE;
+			status = -1;
+			return status;
+		}
+		for( k=0; k<MAX_VIDEO_QUEUE;k++)
+		{
+			//----------------------------------- buf
+			pdx->m_VideoInfo[index].m_pVideoBufData[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);
+			if(!pdx->m_VideoInfo[index].m_pVideoBufData[k])
 			{
-				printk("m_pbyVideoBuffer[%d] mem Allocate Fail ************\n", i);
+
+				pdx->m_bBufferAllocate = TRUE;
+				DmaMemFreePool(pdx);
+				pdx->m_bBufferAllocate = FALSE;
+				status = -1;
+				return status;
+
+			}
+			else
+			{
+
+				pdx->m_VideoInfo[index].m_pVideoData_area[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData[k] + PAGE_SIZE -1) & PAGE_MASK);
+				for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k] + (pdx->m_MaxHWVideoBufferSize));
+					 phyvirt_addr+=PAGE_SIZE)
+					 {
+						 // reserve all pages to make them remapable
+						 SetPageReserved(virt_to_page(phyvirt_addr));
+					 }
+					 memset(pdx->m_VideoInfo[index].m_pVideoBufData[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
+			}
+			//-------------------------------------------------------
+			//----------------------------------- buf1
+			pdx->m_VideoInfo[index].m_pVideoBufData1[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);
+			if(!pdx->m_VideoInfo[index].m_pVideoBufData1[k])
+			{
+
+				pdx->m_bBufferAllocate = TRUE;
+				DmaMemFreePool(pdx);
+				pdx->m_bBufferAllocate = FALSE;
+				status = -1;
+				return status;
+
+			}
+			else
+			{
+
+				pdx->m_VideoInfo[index].m_pVideoData_area1[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData[k] + PAGE_SIZE -1) & PAGE_MASK);
+				for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k] + (pdx->m_MaxHWVideoBufferSize));
+					 phyvirt_addr+=PAGE_SIZE)
+					 {
+						 // reserve all pages to make them remapable
+						 SetPageReserved(virt_to_page(phyvirt_addr));
+					 }
+					 memset(pdx->m_VideoInfo[index].m_pVideoBufData1[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
+			}
+			//-------------------------------------------------------
+			//----------------------------------- buf2
+			pdx->m_VideoInfo[index].m_pVideoBufData2[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);
+			if(!pdx->m_VideoInfo[index].m_pVideoBufData2[k])
+			{
+
+				pdx->m_bBufferAllocate = TRUE;
+				DmaMemFreePool(pdx);
+				pdx->m_bBufferAllocate = FALSE;
+				status = -1;
+				return status;
+
+			}
+			else
+			{
+
+				pdx->m_VideoInfo[index].m_pVideoData_area2[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData2[k] + PAGE_SIZE -1) & PAGE_MASK);
+				for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k] + (pdx->m_MaxHWVideoBufferSize));
+					 phyvirt_addr+=PAGE_SIZE)
+					 {
+						 // reserve all pages to make them remapable
+						 SetPageReserved(virt_to_page(phyvirt_addr));
+					 }
+					 memset(pdx->m_VideoInfo[index].m_pVideoBufData2[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
+			}
+			//-------------------------------------------------------
+			//----------------------------------- buf3
+			pdx->m_VideoInfo[index].m_pVideoBufData3[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);
+			if(!pdx->m_VideoInfo[index].m_pVideoBufData3[k])
+			{
+
+				pdx->m_bBufferAllocate = TRUE;
+				DmaMemFreePool(pdx);
+				pdx->m_bBufferAllocate = FALSE;
+				status = -1;
+				return status;
+
+			}
+			else
+			{
+
+				pdx->m_VideoInfo[index].m_pVideoData_area3[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData3[k] + PAGE_SIZE -1) & PAGE_MASK);
+				for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k] + (pdx->m_MaxHWVideoBufferSize));
+					 phyvirt_addr+=PAGE_SIZE)
+					 {
+						 // reserve all pages to make them remapable
+						 SetPageReserved(virt_to_page(phyvirt_addr));
+					 }
+					 memset(pdx->m_VideoInfo[index].m_pVideoBufData3[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
+			}
+			//-------------------------------------------------------
+			pdx->m_VideoInfo[index].pStatusInfo[k].byLock = MEM_UNLOCK;
+			pdx->m_VideoInfo[index].m_nVideoIndex = 0;
+		}
+	}
+
+	//----------audio alloc
+	#if 1
+	for(i=0; i<pdx->m_nCurreMaxVideoChl; i++)
+	{
+		for( k=0; k<MAX_AUDIO_QUEUE;k++)
+		{
+			pdx->m_AudioInfo[i].m_pAudioBufData[k] =kmalloc(pdx->m_dwAudioPTKSize, GFP_KERNEL);
+			if(!pdx->m_AudioInfo[i].m_pAudioBufData[k])
+			{
 				pdx->m_bBufferAllocate = TRUE;
 				DmaMemFreePool(pdx);
 				pdx->m_bBufferAllocate = FALSE;
 				status = -1;
 				return status;
 			}
-			#if 0
-			pdx->m_pbyVideoBuffer_area[i] = (char *)(((unsigned long)pdx->m_pbyVideoBuffer[i] + PAGE_SIZE -1) & PAGE_MASK);
-			for (phyvirt_addr=(unsigned long)pdx->m_pbyVideoBuffer_area[i]; phyvirt_addr < ((unsigned long)pdx->m_pbyVideoBuffer_area[i] + (pdx->m_MaxHWVideoBufferSize));
-			phyvirt_addr+=PAGE_SIZE) 
+			else
 			{
-				// reserve all pages to make them remapable
-				SetPageReserved(virt_to_page(phyvirt_addr));
-			} 
-			memset(pdx->m_pbyVideoBuffer[i] , 0x0,(pdx->m_MaxHWVideoBufferSize) );
-			phy_addr= (dma_addr_t)virt_to_phys(pdx->m_pbyVideoBuffer[i]);
-			pdx->m_pbyVideo_phys[i] = phy_addr;
-			#else 
-				phy_addr = 	pdx->m_pbyVideo_phys[i];
-			#endif 
-			//printk("PHY= %X=%X\n",phy_addr,pdx->m_pbyVideo_phys[i]);
-			
-			pdx->m_dwVideoBuffer[i] = 	  ((u64)phy_addr)&0xFFFFFFFF;
-			pdx->m_dwVideoHighBuffer[i] = ((u64)phy_addr>>32)&0xFFFFFFFF;;
-
-			pdx->m_pbyAudioBuffer[i] = (BYTE *)(pdx->m_pbyVideoBuffer[i] + pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE );
-			#if 0
-				phy_addr= (dma_addr_t)virt_to_phys(pdx->m_pbyAudioBuffer[i]);
-			#else
-				phy_addr = pdx->m_pbyVideo_phys[i] + (pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE);
-			#endif 
-			pdx->m_pbyAudio_phys[i] = phy_addr;
-			
-			pdx->m_dwAudioBuffer[i] =    pdx->m_dwVideoBuffer[i]+ pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE;
-			pdx->m_dwAudioBufferHigh[i] = pdx->m_dwVideoHighBuffer[i];
-			//printk("[MV]Mem Video::m_dwVideoBuffer[%d] = %x\n", i, pdx->m_dwVideoBuffer[i]);
-			//printk("[MV]Mem Video::m_dwVideoHighBuffer[%d] = %x\n", i, pdx->m_dwVideoHighBuffer[i]);
-			//printk("[MV]Mem Audio::m_dwAudioBuffer[%d] = %x\n", i, pdx->m_dwAudioBuffer[i]);
-			//printk("[MV]Mem Audio::m_dwAudioBufferHigh[%d] = %x\n", i, pdx->m_dwAudioBufferHigh[i]);
-
-		}
-
-		
-         //KdPrint(("Mem allocate::m_dwAudioBuffer[%d] = %x\n", i, pdx->m_dwAudioBuffer));
-		//-------------- video buffer 
-		for(index=0; index<pdx->m_nCurreMaxVideoChl; index++)
-		{
-			pdx->m_VideoInfo[index].m_pVideoScalerBuf = vmalloc(MAX_VIDEO_HW_W*MAX_VIDEO_HW_H*2);
-			if(pdx->m_VideoInfo[index].m_pVideoScalerBuf ==NULL)
-			{
-					pdx->m_bBufferAllocate = TRUE;
-					DmaMemFreePool(pdx);
-					pdx->m_bBufferAllocate = FALSE;
-					status = -1;
-					return status;
-			}
-			for( k=0; k<MAX_VIDEO_QUEUE;k++)
-			{
-				//----------------------------------- buf 
-				pdx->m_VideoInfo[index].m_pVideoBufData[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);	
-				if(!pdx->m_VideoInfo[index].m_pVideoBufData[k])
-				{
-					
-					pdx->m_bBufferAllocate = TRUE;
-					DmaMemFreePool(pdx);
-					pdx->m_bBufferAllocate = FALSE;
-					status = -1;
-					return status;
-
-				}
-				else
-				{
-
-					pdx->m_VideoInfo[index].m_pVideoData_area[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData[k] + PAGE_SIZE -1) & PAGE_MASK);
-					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k] + (pdx->m_MaxHWVideoBufferSize));
-						phyvirt_addr+=PAGE_SIZE) 
-					{
-							// reserve all pages to make them remapable
-							SetPageReserved(virt_to_page(phyvirt_addr));
-					} 
-					memset(pdx->m_VideoInfo[index].m_pVideoBufData[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
-				}
-				//-------------------------------------------------------
-				//----------------------------------- buf1 
-				pdx->m_VideoInfo[index].m_pVideoBufData1[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);	
-				if(!pdx->m_VideoInfo[index].m_pVideoBufData1[k])
-				{
-					
-					pdx->m_bBufferAllocate = TRUE;
-					DmaMemFreePool(pdx);
-					pdx->m_bBufferAllocate = FALSE;
-					status = -1;
-					return status;
-
-				}
-				else
-				{
-
-					pdx->m_VideoInfo[index].m_pVideoData_area1[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData[k] + PAGE_SIZE -1) & PAGE_MASK);
-					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k] + (pdx->m_MaxHWVideoBufferSize));
-						phyvirt_addr+=PAGE_SIZE) 
-					{
-							// reserve all pages to make them remapable
-							SetPageReserved(virt_to_page(phyvirt_addr));
-					} 
-					memset(pdx->m_VideoInfo[index].m_pVideoBufData1[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
-				}
-				//-------------------------------------------------------
-				//----------------------------------- buf2 
-				pdx->m_VideoInfo[index].m_pVideoBufData2[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);	
-				if(!pdx->m_VideoInfo[index].m_pVideoBufData2[k])
-				{
-					
-					pdx->m_bBufferAllocate = TRUE;
-					DmaMemFreePool(pdx);
-					pdx->m_bBufferAllocate = FALSE;
-					status = -1;
-					return status;
-
-				}
-				else
-				{
-
-					pdx->m_VideoInfo[index].m_pVideoData_area2[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData2[k] + PAGE_SIZE -1) & PAGE_MASK);
-					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k] + (pdx->m_MaxHWVideoBufferSize));
-						phyvirt_addr+=PAGE_SIZE) 
-					{
-							// reserve all pages to make them remapable
-							SetPageReserved(virt_to_page(phyvirt_addr));
-					} 
-					memset(pdx->m_VideoInfo[index].m_pVideoBufData2[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
-				}
-				//-------------------------------------------------------
-				//----------------------------------- buf3 
-				pdx->m_VideoInfo[index].m_pVideoBufData3[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);	
-				if(!pdx->m_VideoInfo[index].m_pVideoBufData3[k])
-				{
-					
-					pdx->m_bBufferAllocate = TRUE;
-					DmaMemFreePool(pdx);
-					pdx->m_bBufferAllocate = FALSE;
-					status = -1;
-					return status;
-
-				}
-				else
-				{
-
-					pdx->m_VideoInfo[index].m_pVideoData_area3[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData3[k] + PAGE_SIZE -1) & PAGE_MASK);
-					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k] + (pdx->m_MaxHWVideoBufferSize));
-						phyvirt_addr+=PAGE_SIZE) 
-					{
-							// reserve all pages to make them remapable
-							SetPageReserved(virt_to_page(phyvirt_addr));
-					} 
-					memset(pdx->m_VideoInfo[index].m_pVideoBufData3[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
-				}
-				//-------------------------------------------------------
-				pdx->m_VideoInfo[index].pStatusInfo[k].byLock = MEM_UNLOCK;
-				pdx->m_VideoInfo[index].m_nVideoIndex = 0;
+				pdx->m_AudioInfo[i].pStatusInfo[k].byLock = MEM_UNLOCK;
+				pdx->m_AudioInfo[i].m_pAudioData_area[k] = (char *)(((unsigned long)pdx->m_AudioInfo[i].m_pAudioBufData[k] + PAGE_SIZE -1) & PAGE_MASK);
+				for (phyvirt_addr=(unsigned long)pdx->m_AudioInfo[i].m_pAudioData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_AudioInfo[i].m_pAudioData_area[k]  + pdx->m_dwAudioPTKSize);
+					 phyvirt_addr+=PAGE_SIZE)
+					 {
+						 // reserve all pages to make them remapable
+						 SetPageReserved(virt_to_page(phyvirt_addr));
+					 }
 			}
 		}
-		
-	   //----------audio alloc 
-	   #if 1
-		for(i=0; i<pdx->m_nCurreMaxVideoChl; i++)
-		{
-			for( k=0; k<MAX_AUDIO_QUEUE;k++)
-			{
-				pdx->m_AudioInfo[i].m_pAudioBufData[k] =kmalloc(pdx->m_dwAudioPTKSize, GFP_KERNEL);
-				if(!pdx->m_AudioInfo[i].m_pAudioBufData[k])
-				{
-					pdx->m_bBufferAllocate = TRUE;
-					DmaMemFreePool(pdx);
-					pdx->m_bBufferAllocate = FALSE;
-		    		status = -1;
-					return status;
-				}
-				else
-				{
-					pdx->m_AudioInfo[i].pStatusInfo[k].byLock = MEM_UNLOCK;
-					pdx->m_AudioInfo[i].m_pAudioData_area[k] = (char *)(((unsigned long)pdx->m_AudioInfo[i].m_pAudioBufData[k] + PAGE_SIZE -1) & PAGE_MASK);
-					for (phyvirt_addr=(unsigned long)pdx->m_AudioInfo[i].m_pAudioData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_AudioInfo[i].m_pAudioData_area[k]  + pdx->m_dwAudioPTKSize);
-							phyvirt_addr+=PAGE_SIZE) 
-					{
-						// reserve all pages to make them remapable
-						SetPageReserved(virt_to_page(phyvirt_addr));
-					} 
-				}
-			}
-		}
-	   #endif 
-		//------------------------------------------------------------
-		//KdPrint(("Mem allocate::m_pAudioData = %x\n",  pdx->m_pAudioData));
-		pdx->m_bBufferAllocate = TRUE;
-		//KdPrint(("DmaMemAllocPool  ed\n"));
-		return 0;
+	}
+	#endif
+	//------------------------------------------------------------
+	//KdPrint(("Mem allocate::m_pAudioData = %x\n",  pdx->m_pAudioData));
+	pdx->m_bBufferAllocate = TRUE;
+	//KdPrint(("DmaMemAllocPool  ed\n"));
+	return 0;
 }
 
 static void StopDevice(struct hws_pcie_dev *pdx)
-	{							// StopDevice		
-		//Trace t("StopDevice()");
-		int i;
-		//int   device_lost =0;
-		u32  statusreg;
-        StopDsp(pdx);
-		statusreg = READ_REGISTER_ULONG(pdx,(0x4000));
-		//DbgPrint("[MV] Busy!!! statusreg =%X\n", statusreg);
-		if (statusreg != 0xFFFFFFFF)
+{							// StopDevice
+	//Trace t("StopDevice()");
+	int i;
+	//int   device_lost =0;
+	u32  statusreg;
+	StopDsp(pdx);
+	statusreg = READ_REGISTER_ULONG(pdx,(0x4000));
+	//DbgPrint("[MV] Busy!!! statusreg =%X\n", statusreg);
+	if (statusreg != 0xFFFFFFFF)
+	{
+		//set to one buffer mode
+		//WRITE_REGISTER_ULONG((u32)(CVBS_IN_BASE + (25*PCIE_BARADDROFSIZE)), 0x00); //Buffer 1 address
+	}
+	else
+	{
+		pdx->m_PciDeviceLost = 1;
+	}
+	pdx->m_bStartRun = 0;
+	if(pdx->m_PciDeviceLost ==0)
+	{
+		for (i = 0; i<MAX_VID_CHANNELS; i++)
 		{
-			//set to one buffer mode 
-	   	   //WRITE_REGISTER_ULONG((u32)(CVBS_IN_BASE + (25*PCIE_BARADDROFSIZE)), 0x00); //Buffer 1 address
+			EnableVideoCapture(pdx,i,0);
+			EnableAudioCapture(pdx,i,0);
 		}
-		else
-		{
-			pdx->m_PciDeviceLost = 1;
-		}
-		pdx->m_bStartRun = 0;
-		if(pdx->m_PciDeviceLost ==0)
-		{
-			for (i = 0; i<MAX_VID_CHANNELS; i++)
-			{
-				EnableVideoCapture(pdx,i,0);
-				EnableAudioCapture(pdx,i,0);
-			}
-		}
-		//if(device_lost) return;
-		DmaMemFreePool(pdx);		 
-		//printk("StopDevice Done\n");
+	}
+	//if(device_lost) return;
+	DmaMemFreePool(pdx);
+	//printk("StopDevice Done\n");
 
-		
-	}	
+
+}
 static void irq_teardown(struct hws_pcie_dev *lro)
 {
 	//int i;
@@ -3997,8 +3993,8 @@ static void irq_teardown(struct hws_pcie_dev *lro)
 	//		printk("Releasing IRQ#%d\n", lro->entry[i].vector);
 	//		free_irq(lro->entry[i].vector, &lro->user_irq[i]);
 	//	}
-	//} 
-	//else 
+	//}
+	//else
 
 	if (lro->irq_line != -1) {
 		//printk("Releasing IRQ#%d\n", lro->irq_line);
@@ -4009,7 +4005,7 @@ void StopKSThread(struct hws_pcie_dev *pdx)
 {
 	if(pdx->mMain_tsk)
 	{
-		kthread_stop(pdx->mMain_tsk);	
+		kthread_stop(pdx->mMain_tsk);
 	}
 }
 
@@ -4018,8 +4014,8 @@ static void hws_remove(struct pci_dev *pdev)
 {
 	int i;
 	struct video_device *vdev;
-	struct hws_pcie_dev *dev = 
-		(struct hws_pcie_dev*) pci_get_drvdata(pdev);
+	struct hws_pcie_dev *dev =
+	(struct hws_pcie_dev*) pci_get_drvdata(pdev);
 	//----------------------------
 	if(dev->map_bar0_addr == NULL) return;
 	//StopSys(dev);
@@ -4031,7 +4027,7 @@ static void hws_remove(struct pci_dev *pdev)
 	for ( i = 0; i<dev->m_nCurreMaxVideoChl; i++)
 	{
 		tasklet_kill(&dev->dpc_video_tasklet[i]);
-		tasklet_kill(&dev->dpc_audio_tasklet[i]);	
+		tasklet_kill(&dev->dpc_audio_tasklet[i]);
 	}
 	//-------------------------
 	//printk("hws_remove  1\n");
@@ -4046,7 +4042,7 @@ static void hws_remove(struct pci_dev *pdev)
 			snd_card_free(dev->audio[i].card);
 			dev->audio[i].card=NULL;
 		}
-	}	
+	}
 	for(i=0;i<dev->m_nCurreMaxVideoChl;i++){
 		vdev = &dev->video[i].vdev;
 		video_unregister_device(vdev);
@@ -4057,34 +4053,34 @@ static void hws_remove(struct pci_dev *pdev)
 	{
 		destroy_workqueue(dev->wq);
 	}
-	
+
 	if(dev->auwq)
 	{
 		destroy_workqueue(dev->auwq);
 	}
 	dev->wq=NULL;
 	dev->auwq=NULL;
-    //free_irq(dev->pdev->irq, dev);
+	//free_irq(dev->pdev->irq, dev);
 
 	iounmap(dev->info.mem[0].internal_addr);
-	
+
 	//pci_disable_device(pdev);
-	if (dev->msix_enabled) 
-	{		
-			pci_disable_msix(pdev); 	
-			dev->msix_enabled = 0; 
-	}	
+	if (dev->msix_enabled)
+	{
+		pci_disable_msix(pdev);
+		dev->msix_enabled = 0;
+	}
 	else if (dev->msi_enabled)
 	{
-			pci_disable_msi(pdev);		
-			dev->msi_enabled = 0;	
+		pci_disable_msi(pdev);
+		dev->msi_enabled = 0;
 	}
 	kfree(dev);
 	pci_disable_device(pdev);
 	pci_set_drvdata(pdev, NULL);
 	//printk("hws_remove  Done\n");
 }
-//---------------------------------------	
+//---------------------------------------
 static void CheckCardStatus(struct hws_pcie_dev *pdx)
 {
 	ULONG status;
@@ -4095,7 +4091,7 @@ static void CheckCardStatus(struct hws_pcie_dev *pdx)
 		//DbgPrint("CheckCardStatus =%X",status);
 		InitVideoSys(pdx,1);
 	}
-	
+
 }
 static int CheckVideoCapture(struct hws_pcie_dev *pdx,int index)
 {
@@ -4117,21 +4113,21 @@ static int CheckAudioCapture(struct hws_pcie_dev *pdx,int index)
 static int  StartAudioCapture(struct hws_pcie_dev *pdx,int index)
 {
 	int j;
-	
-	if(pdx->m_bACapStarted[index]==1) 
+
+	if(pdx->m_bACapStarted[index]==1)
 	{
 		if(CheckAudioCapture(pdx,index) ==0)
 		{
 			CheckCardStatus(pdx);
 			EnableAudioCapture(pdx,index,1);
 		}
-		//DbgPrint("Re StartAudioCapture =%d",index);	
+		//DbgPrint("Re StartAudioCapture =%d",index);
 		return -1;
 	}
 	CheckCardStatus(pdx);
 	pdx->m_bAudioRun[index] = 1;
 	pdx->m_bAudioStop[index] = 0;
-	pdx->m_nAudioBufferIndex[index] =0; 
+	pdx->m_nAudioBufferIndex[index] =0;
 	pdx->audio_data[index]=0;
 	pdx->m_nRDAudioIndex[index] =0;
 	for(j=0; j<MAX_AUDIO_QUEUE;j++)
@@ -4147,7 +4143,7 @@ static int StartVideoCapture(struct hws_pcie_dev *pdx,int index)
 {
 	int j;
 	//unsigned long flags;
-	if(pdx->m_bVCapStarted[index]==1) 
+	if(pdx->m_bVCapStarted[index]==1)
 	{
 
 		CheckCardStatus(pdx);
@@ -4163,9 +4159,9 @@ static int StartVideoCapture(struct hws_pcie_dev *pdx,int index)
 	//spin_lock_irqsave(&pdx->videoslock[index], flags);
 	for (j = 0; j<MAX_VIDEO_QUEUE; j++)
 	{
-			pdx->m_pVCAPStatus[index][j].byLock = MEM_UNLOCK;
-			pdx->m_pVCAPStatus[index][j].byPath = 2;
-			
+		pdx->m_pVCAPStatus[index][j].byLock = MEM_UNLOCK;
+		pdx->m_pVCAPStatus[index][j].byPath = 2;
+
 	}
 	//spin_unlock_irqrestore(&pdx->videoslock[index], flags);
 	//pdx->m_nVideoIndex[index] =0;
@@ -4184,8 +4180,8 @@ static int StartVideoCapture(struct hws_pcie_dev *pdx,int index)
 static void StopVideoCapture(struct hws_pcie_dev *pdx,int index)
 {
 	//int inc=0;
-	
-	if(pdx->m_bVCapStarted[index] ==0) return;	
+
+	if(pdx->m_bVCapStarted[index] ==0) return;
 	//pdx->m_nVideoIndex[index] =0;
 	pdx->m_VideoInfo[index].dwisRuning = 0;
 	pdx->m_bVideoStop[index] = 1;
@@ -4194,20 +4190,20 @@ static void StopVideoCapture(struct hws_pcie_dev *pdx,int index)
 	#if 0
 	while(1)
 	{
-		if(pdx->m_bVideoStop[index] ==0)
-		{
-			break;
-		}
-		inc++;
-		if(inc >2000)
-		{
-			break;
-		}
-		msleep(10);
-	}
-	#endif 
-	EnableVideoCapture(pdx,index,0);
-	pdx->m_bVCapIntDone[index] = 0;
+	if(pdx->m_bVideoStop[index] ==0)
+	{
+	break;
+}
+inc++;
+if(inc >2000)
+{
+break;
+}
+msleep(10);
+}
+#endif
+EnableVideoCapture(pdx,index,0);
+pdx->m_bVCapIntDone[index] = 0;
 }
 static void StopAudioCapture(struct hws_pcie_dev *pdx,int index)
 {
@@ -4220,233 +4216,233 @@ static void StopAudioCapture(struct hws_pcie_dev *pdx,int index)
 	#if 0
 	while(1)
 	{
-		if(pdx->m_bAudioStop[index] ==0)
-		{
-			break;
-		}
-		inc++;
-		if(inc >2000)
-		{
-			break;
-		}
-		msleep(10);
-	}
-	#endif 
-	EnableAudioCapture(pdx,index,0);
+	if(pdx->m_bAudioStop[index] ==0)
+	{
+	break;
+}
+inc++;
+if(inc >2000)
+{
+break;
+}
+msleep(10);
+}
+#endif
+EnableAudioCapture(pdx,index,0);
 }
 //-----------------------------
 
 
 //-----------------------------
 static int MemCopyVideoToSteam(struct hws_pcie_dev *pdx,int nDecoder)
+{
+	int nIndex = -1;
+	//int i=0 ;
+	int status =-1;
+	BYTE *bBuf = NULL;
+	BYTE *bBuf1 = NULL;
+	BYTE *pSrcBuf= NULL;
+	BYTE *pDmaSrcBuf= NULL;
+	BYTE *pSrcBuf1= NULL;
+	BYTE *pDmaSrcBuf1= NULL;
+	int dwSrcPitch;
+	//int dwMaskPitch;
+	int copysize;
+	int copysize1;
+	int nw,nh;
+	int interlace;
+	int mVideoBufIndex;
+	//int halfsize;
+	int *pMask;
+	int  line_cnt=0;
+	unsigned long flags;
+
+	//---------------------
+	nw = pdx->m_pVCAPStatus[nDecoder][0].dwWidth ;
+	nh = pdx->m_pVCAPStatus[nDecoder][0].dwHeight;
+	if((nw <0)||(nh<0)||(nw>MAX_VIDEO_HW_W)||(nh>MAX_VIDEO_HW_H))
 	{
-		int nIndex = -1;
-		//int i=0 ;
-		int status =-1;
-		BYTE *bBuf = NULL;
-		BYTE *bBuf1 = NULL;
-		BYTE *pSrcBuf= NULL;
-		BYTE *pDmaSrcBuf= NULL;
-		BYTE *pSrcBuf1= NULL;
-		BYTE *pDmaSrcBuf1= NULL;
-		int dwSrcPitch;
-		//int dwMaskPitch;
-		int copysize;
-		int copysize1;
-		int nw,nh;
-		int interlace;
-		int mVideoBufIndex;
-		//int halfsize;
-		int *pMask;
-		int  line_cnt=0;
-		unsigned long flags;
+		return -1;
+	}
+	mVideoBufIndex = pdx->m_nVideoBufferIndex[nDecoder];
+	interlace  = pdx->m_pVCAPStatus[nDecoder][0].dwinterlace;
+	if(pdx->m_Device_SupportYV12 ==1)
+	{
+		dwSrcPitch = nw*12/8;
+	}
+	else
+	{
+		dwSrcPitch = nw*2;
+	}
+	if(mVideoBufIndex== 1)
+	{
 
-		//---------------------
-		nw = pdx->m_pVCAPStatus[nDecoder][0].dwWidth ;
-		nh = pdx->m_pVCAPStatus[nDecoder][0].dwHeight;
-		if((nw <0)||(nh<0)||(nw>MAX_VIDEO_HW_W)||(nh>MAX_VIDEO_HW_H))
-		{
-			return -1;
-		}
-		mVideoBufIndex = pdx->m_nVideoBufferIndex[nDecoder]; 
-		interlace  = pdx->m_pVCAPStatus[nDecoder][0].dwinterlace;
-		if(pdx->m_Device_SupportYV12 ==1)
-		{
-			dwSrcPitch = nw*12/8;
-		}
-		else
-		{
-			dwSrcPitch = nw*2;
-		}
-		if(mVideoBufIndex== 1)
-		{
-						
-			pDmaSrcBuf = pdx->m_pbyVideoBuffer[0];
-			pDmaSrcBuf1 = pdx->m_pbyVideoBuffer[1];
-			//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyVideo_phys[0],pdx->m_MaxHWVideoBufferSize,2);
-			//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyVideo_phys[1],pdx->m_MaxHWVideoBufferSize,2);
-			dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyVideo_phys[0],pdx->m_MaxHWVideoBufferSize,2);
-			dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyVideo_phys[1],pdx->m_MaxHWVideoBufferSize,2);
-			
-				
-			copysize = pdx->m_format[0].HLAF_SIZE;
-			copysize1 = pdx->m_format[1].HLAF_SIZE;
-			line_cnt = copysize1/dwSrcPitch;
-		}
-		else
-		{
-			pDmaSrcBuf = pdx->m_pbyVideoBuffer[2];
-			pDmaSrcBuf1 = pdx->m_pbyVideoBuffer[3];
-			//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyVideo_phys[2],pdx->m_MaxHWVideoBufferSize,2);
-			//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyVideo_phys[3],pdx->m_MaxHWVideoBufferSize,2);
-			dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyVideo_phys[2],pdx->m_MaxHWVideoBufferSize,2);
-			dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyVideo_phys[3],pdx->m_MaxHWVideoBufferSize,2);
-			copysize = pdx->m_format[2].HLAF_SIZE;
-			copysize1 = pdx->m_format[3].HLAF_SIZE;
-			line_cnt = copysize1/dwSrcPitch;
+		pDmaSrcBuf = pdx->m_pbyVideoBuffer[0];
+		pDmaSrcBuf1 = pdx->m_pbyVideoBuffer[1];
+		//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyVideo_phys[0],pdx->m_MaxHWVideoBufferSize,2);
+		//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyVideo_phys[1],pdx->m_MaxHWVideoBufferSize,2);
+		dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyVideo_phys[0],pdx->m_MaxHWVideoBufferSize,2);
+		dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyVideo_phys[1],pdx->m_MaxHWVideoBufferSize,2);
 
-		}
-		pMask = (int*)(pDmaSrcBuf1+(copysize1-(line_cnt-1)*dwSrcPitch));
-		if(*pMask == 0x55AAAA55)
+
+		copysize = pdx->m_format[0].HLAF_SIZE;
+		copysize1 = pdx->m_format[1].HLAF_SIZE;
+		line_cnt = copysize1/dwSrcPitch;
+	}
+	else
+	{
+		pDmaSrcBuf = pdx->m_pbyVideoBuffer[2];
+		pDmaSrcBuf1 = pdx->m_pbyVideoBuffer[3];
+		//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyVideo_phys[2],pdx->m_MaxHWVideoBufferSize,2);
+		//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyVideo_phys[3],pdx->m_MaxHWVideoBufferSize,2);
+		dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyVideo_phys[2],pdx->m_MaxHWVideoBufferSize,2);
+		dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyVideo_phys[3],pdx->m_MaxHWVideoBufferSize,2);
+		copysize = pdx->m_format[2].HLAF_SIZE;
+		copysize1 = pdx->m_format[3].HLAF_SIZE;
+		line_cnt = copysize1/dwSrcPitch;
+
+	}
+	pMask = (int*)(pDmaSrcBuf1+(copysize1-(line_cnt-1)*dwSrcPitch));
+	if(*pMask == 0x55AAAA55)
+	{
+		//DbgPrint("########-*pMask- [%d]%X[%d-%d]\n",nDecoder, *pMask,nw,nh);
+		//------------------------------
+		if(pdx->m_nVideoHalfDone[nDecoder] == 1)
 		{
-			//DbgPrint("########-*pMask- [%d]%X[%d-%d]\n",nDecoder, *pMask,nw,nh);
-			//------------------------------
-			if(pdx->m_nVideoHalfDone[nDecoder] == 1)
+			pdx->m_nVideoHalfDone[nDecoder] =0;
+		}
+		//------------------------------
+		return -1;
+	}
+	else
+	{
+		if(mVideoBufIndex== 0)
+		{
+			if(pdx->m_nVideoHalfDone[nDecoder]  ==0)
 			{
-				pdx->m_nVideoHalfDone[nDecoder] =0; 
-			}
-			//------------------------------
-			return -1;
-		}
-		else					
-		{							
-			if(mVideoBufIndex== 0)							
-			{								
-				if(pdx->m_nVideoHalfDone[nDecoder]  ==0)
-				{									
-						//DbgPrint("X1:HLAF ########-*pMask- [%d] [%d]\n",nDecoder,mVideoBufIndex);										
-						*pMask = 0x55AAAA55;
-						return -1;								
-				}
-				else
-				{
-					pdx->m_nVideoHalfDone[nDecoder] =0; 
-				}
-			}
-		}		
-		//-------------------------------
-		nIndex = -1;
-		pSrcBuf = pDmaSrcBuf;
-		pSrcBuf1 = pDmaSrcBuf1;
-		bBuf =NULL;
-		bBuf1 = NULL;
-		if(pdx->m_VideoInfo[nDecoder].dwisRuning ==1)
-		{
-			//--------------			
-			if(mVideoBufIndex== 1)
-			{
-				if(pdx->m_VideoInfo[nDecoder].pStatusInfo[pdx->m_VideoInfo[nDecoder].m_nVideoIndex].byLock== MEM_UNLOCK)
-	
-				{
-						nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
-						bBuf =	pdx->m_VideoInfo[nDecoder].m_pVideoBufData[nIndex];
-						bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData1[nIndex];
-
-				}
+				//DbgPrint("X1:HLAF ########-*pMask- [%d] [%d]\n",nDecoder,mVideoBufIndex);
+				*pMask = 0x55AAAA55;
+				return -1;
 			}
 			else
 			{
-					   nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
-					   bBuf =  pdx->m_VideoInfo[nDecoder].m_pVideoBufData2[nIndex];
-					   bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData3[nIndex];
-
+				pdx->m_nVideoHalfDone[nDecoder] =0;
 			}
-			if(nIndex== -1)
-			{
-							
-					//if(pdx->m_VideoInfo[nDecoder].pStatusInfo[video_index][pdx->m_VideoInfo[nDecoder].m_nVideoIndex[video_index]].byField== 0)
-				//{
-					pdx->m_VideoInfo[nDecoder].pStatusInfo[pdx->m_VideoInfo[nDecoder].m_nVideoIndex].byLock= MEM_UNLOCK;
-					nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
-					bBuf =  pdx->m_VideoInfo[nDecoder].m_pVideoBufData[nIndex];
-					bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData1[nIndex];
-				//}
-			}
-
-			//-------------------
-			if((nIndex!= -1)&& bBuf&&bBuf1)
-			{
-				memcpy(bBuf,pSrcBuf,copysize);
-				memcpy(bBuf1,pSrcBuf1,copysize1);
-				//----------------------
-					if(mVideoBufIndex== 0)
-					{
-							status = 0;
-							spin_lock_irqsave(&pdx->videoslock[nDecoder], flags);
-							
-							pdx->m_VideoInfo[nDecoder].m_nVideoIndex = nIndex+1;
-							if(pdx->m_VideoInfo[nDecoder].m_nVideoIndex >= MAX_VIDEO_QUEUE)
-							{
-								pdx->m_VideoInfo[nDecoder].m_nVideoIndex =0;
-							}
-								pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[2] = copysize;
-								pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[3] = copysize1;
-								pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwWidth = pdx->m_pVCAPStatus[nDecoder][0].dwWidth ; 
-								pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwHeight = pdx->m_pVCAPStatus[nDecoder][0].dwHeight;
-								pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwinterlace = interlace;
-								pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].byLock = MEM_LOCK;
-
-							spin_unlock_irqrestore(&pdx->videoslock[nDecoder], flags);
-					}
-					else
-					{
-						pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[0] = copysize;
-						pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[1] = copysize1;
-						pdx->m_nVideoHalfDone[nDecoder] = 1; 
-
-					}
-					 
-				}
-				else
-				{
-					 //printk("No Buffer Write %d",nDecoder);
-					 //queue_work(pdx->wq,&pdx->video[nDecoder].videowork);
-					 pdx->m_nVideoHalfDone[nDecoder] =0; 
-				}
 		}
-		*pMask = 0x55AAAA55;
-		return status;
+	}
+	//-------------------------------
+	nIndex = -1;
+	pSrcBuf = pDmaSrcBuf;
+	pSrcBuf1 = pDmaSrcBuf1;
+	bBuf =NULL;
+	bBuf1 = NULL;
+	if(pdx->m_VideoInfo[nDecoder].dwisRuning ==1)
+	{
+		//--------------
+		if(mVideoBufIndex== 1)
+		{
+			if(pdx->m_VideoInfo[nDecoder].pStatusInfo[pdx->m_VideoInfo[nDecoder].m_nVideoIndex].byLock== MEM_UNLOCK)
+
+			{
+				nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
+				bBuf =	pdx->m_VideoInfo[nDecoder].m_pVideoBufData[nIndex];
+				bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData1[nIndex];
+
+			}
+		}
+		else
+		{
+			nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
+			bBuf =  pdx->m_VideoInfo[nDecoder].m_pVideoBufData2[nIndex];
+			bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData3[nIndex];
+
+		}
+		if(nIndex== -1)
+		{
+
+			//if(pdx->m_VideoInfo[nDecoder].pStatusInfo[video_index][pdx->m_VideoInfo[nDecoder].m_nVideoIndex[video_index]].byField== 0)
+			//{
+			pdx->m_VideoInfo[nDecoder].pStatusInfo[pdx->m_VideoInfo[nDecoder].m_nVideoIndex].byLock= MEM_UNLOCK;
+			nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
+			bBuf =  pdx->m_VideoInfo[nDecoder].m_pVideoBufData[nIndex];
+			bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData1[nIndex];
+			//}
+		}
+
+		//-------------------
+		if((nIndex!= -1)&& bBuf&&bBuf1)
+		{
+			memcpy(bBuf,pSrcBuf,copysize);
+			memcpy(bBuf1,pSrcBuf1,copysize1);
+			//----------------------
+			if(mVideoBufIndex== 0)
+			{
+				status = 0;
+				spin_lock_irqsave(&pdx->videoslock[nDecoder], flags);
+
+				pdx->m_VideoInfo[nDecoder].m_nVideoIndex = nIndex+1;
+				if(pdx->m_VideoInfo[nDecoder].m_nVideoIndex >= MAX_VIDEO_QUEUE)
+				{
+					pdx->m_VideoInfo[nDecoder].m_nVideoIndex =0;
+				}
+				pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[2] = copysize;
+				pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[3] = copysize1;
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwWidth = pdx->m_pVCAPStatus[nDecoder][0].dwWidth ;
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwHeight = pdx->m_pVCAPStatus[nDecoder][0].dwHeight;
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwinterlace = interlace;
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].byLock = MEM_LOCK;
+
+				spin_unlock_irqrestore(&pdx->videoslock[nDecoder], flags);
+			}
+			else
+			{
+				pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[0] = copysize;
+				pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[1] = copysize1;
+				pdx->m_nVideoHalfDone[nDecoder] = 1;
+
+			}
+
+		}
+		else
+		{
+			//printk("No Buffer Write %d",nDecoder);
+			//queue_work(pdx->wq,&pdx->video[nDecoder].videowork);
+			pdx->m_nVideoHalfDone[nDecoder] =0;
+		}
+	}
+	*pMask = 0x55AAAA55;
+	return status;
 }
 static int SetQuene(struct hws_pcie_dev  *pdx,int nDecoder)
+{
+	int status =-1;
+	//KLOCK_QUEUE_HANDLE  oldirql;
+	//DbgPrint("SetQuene %d %d",nDecoder,pdx->m_bStartRun);
+	if(!pdx->m_bStartRun)
 	{
-		int status =-1;
-		//KLOCK_QUEUE_HANDLE  oldirql;
-		//DbgPrint("SetQuene %d %d",nDecoder,pdx->m_bStartRun);
-		if(!pdx->m_bStartRun)
+		return -1 ;
+	}
+	//DbgPrint("SetQuene 2 %d %d",nDecoder,pdx->m_bRun[nDecoder]);
+	if(!pdx->m_bVCapStarted[nDecoder])
+	{
+		if(pdx->m_bVideoStop[nDecoder] == 1)
 		{
-		  return -1 ;
+			pdx->m_bVideoStop[nDecoder] =0;
+			//KeSetEvent(& pdx->m_pVideoExitEvent[nDecoder],IO_NO_INCREMENT,FALSE);
+			//DbgPrint("KeSetEvent Exit Event[%d]\n",nDecoder);
 		}
-		//DbgPrint("SetQuene 2 %d %d",nDecoder,pdx->m_bRun[nDecoder]);
-		if(!pdx->m_bVCapStarted[nDecoder])
-		{
-		  	if(pdx->m_bVideoStop[nDecoder] == 1)
-		  	{
-				pdx->m_bVideoStop[nDecoder] =0;
-				//KeSetEvent(& pdx->m_pVideoExitEvent[nDecoder],IO_NO_INCREMENT,FALSE); 
-				//DbgPrint("KeSetEvent Exit Event[%d]\n",nDecoder);
-			}
-		  
-		  return -1 ;
-		}
-		pdx->m_nVideoBusy[nDecoder] = 1; 
-		//-------------------------------
-		//DbgPrint("SetQuene 3 %d %d",nDecoder,pdx->m_bVCapStarted[nDecoder]);
-		if(pdx->m_bVCapStarted[nDecoder] == TRUE)
-		{
-			status = MemCopyVideoToSteam(pdx,nDecoder);	
-		}
-		pdx->m_nVideoBusy[nDecoder] = 0;
-		return status;
+
+		return -1 ;
+	}
+	pdx->m_nVideoBusy[nDecoder] = 1;
+	//-------------------------------
+	//DbgPrint("SetQuene 3 %d %d",nDecoder,pdx->m_bVCapStarted[nDecoder]);
+	if(pdx->m_bVCapStarted[nDecoder] == TRUE)
+	{
+		status = MemCopyVideoToSteam(pdx,nDecoder);
+	}
+	pdx->m_nVideoBusy[nDecoder] = 0;
+	return status;
 }
 
 //------------------------------------
@@ -4461,72 +4457,72 @@ int MemCopyAudioToSteam( struct hws_pcie_dev  *pdx,int dwAudioCh)
 	//printk("MemCopyAudioToSteam =%d",dwAudioCh);
 	if(pdx->m_nAudioBufferIndex[dwAudioCh]== 0)
 	{
-							
+
 		pSrcBuf = pdx->m_pbyAudioBuffer[dwAudioCh]+pdx->m_dwAudioPTKSize;
 	}
 	else
 	{
 		pSrcBuf =  pdx->m_pbyAudioBuffer[dwAudioCh];
 	}
-	
+
 	//-----------------------------------------------------
-		nIndex = -1;
-		if(pdx->m_AudioInfo[dwAudioCh].dwisRuning ==1)
+	nIndex = -1;
+	if(pdx->m_AudioInfo[dwAudioCh].dwisRuning ==1)
+	{
+		for( i = pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex;i<MAX_AUDIO_QUEUE;i++)
 		{
-			for( i = pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex;i<MAX_AUDIO_QUEUE;i++)
+			if(pdx->m_AudioInfo[dwAudioCh].pStatusInfo[i].byLock== MEM_UNLOCK)
+			{
+				nIndex =i;
+				bBuf = pdx->m_AudioInfo[dwAudioCh].m_pAudioBufData[i];
+				break;
+			}
+		}
+		if(nIndex == -1)
+		{
+			for( i = 0 ;i<pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex;i++)
 			{
 				if(pdx->m_AudioInfo[dwAudioCh].pStatusInfo[i].byLock== MEM_UNLOCK)
 				{
-						nIndex =i;
-						bBuf = pdx->m_AudioInfo[dwAudioCh].m_pAudioBufData[i];
-						break;
+					nIndex =i;
+					bBuf = pdx->m_AudioInfo[dwAudioCh].m_pAudioBufData[i];
+					break;
 				}
-			}
-			if(nIndex == -1)
-			{
-				for( i = 0 ;i<pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex;i++)
-				{
-					if(pdx->m_AudioInfo[dwAudioCh].pStatusInfo[i].byLock== MEM_UNLOCK)
-					{
-						nIndex =i;
-						bBuf = pdx->m_AudioInfo[dwAudioCh].m_pAudioBufData[i];
-						break;
-					}
-				
-				}
-			}
-			
-			if((nIndex!= -1)&& bBuf)
-			{
-
-					//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyAudio_phys[dwAudioCh],MAX_AUDIO_CAP_SIZE,2);
-					dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyAudio_phys[dwAudioCh],MAX_AUDIO_CAP_SIZE,2);
-					memcpy(bBuf, pSrcBuf, pdx->m_dwAudioPTKSize);
-					
-					pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex = nIndex+1;
-					if(pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex>= MAX_AUDIO_QUEUE)
-					{
-						pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex =0;
-					}
-					spin_lock_irqsave(&pdx->audiolock[dwAudioCh], flags);
-					pdx->m_AudioInfo[dwAudioCh].pStatusInfo[nIndex].dwLength = pdx->m_dwAudioPTKSize ;
-			 		pdx->m_AudioInfo[dwAudioCh].pStatusInfo[nIndex].byLock = MEM_LOCK;
-					spin_unlock_irqrestore(&pdx->audiolock[dwAudioCh], flags);
-					//KeSetEvent(& pdx->m_AudioInfo[dwAudioCh].m_pAudioEvent[audio_index],IO_NO_INCREMENT,FALSE); 
-					//printk("Set Audio Event %d\n",dwAudioCh);
-					//pdx->audio[dwAudioCh].pos = pdx->m_dwAudioPTKSize;
-					 //snd_pcm_period_elapsed(pdx->audio[dwAudioCh].substream);	
-					 queue_work(pdx->auwq,&pdx->audio[dwAudioCh].audiowork);
-					//pdx->m_AudioInfo[dwAudioCh].pStatusInfo[nIndex].byLock = MEM_UNLOCK;		
-				
-			}
-			else
-			{
-				printk("No Audio Buffer Write %d",dwAudioCh);
 
 			}
+		}
+
+		if((nIndex!= -1)&& bBuf)
+		{
+
+			//pci_dma_sync_single_for_cpu(pdx->pdev,pdx->m_pbyAudio_phys[dwAudioCh],MAX_AUDIO_CAP_SIZE,2);
+			dma_sync_single_for_cpu(&pdx->pdev->dev,pdx->m_pbyAudio_phys[dwAudioCh],MAX_AUDIO_CAP_SIZE,2);
+			memcpy(bBuf, pSrcBuf, pdx->m_dwAudioPTKSize);
+
+			pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex = nIndex+1;
+			if(pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex>= MAX_AUDIO_QUEUE)
+			{
+				pdx->m_AudioInfo[dwAudioCh].m_nAudioIndex =0;
+			}
+			spin_lock_irqsave(&pdx->audiolock[dwAudioCh], flags);
+			pdx->m_AudioInfo[dwAudioCh].pStatusInfo[nIndex].dwLength = pdx->m_dwAudioPTKSize ;
+			pdx->m_AudioInfo[dwAudioCh].pStatusInfo[nIndex].byLock = MEM_LOCK;
+			spin_unlock_irqrestore(&pdx->audiolock[dwAudioCh], flags);
+			//KeSetEvent(& pdx->m_AudioInfo[dwAudioCh].m_pAudioEvent[audio_index],IO_NO_INCREMENT,FALSE);
+			//printk("Set Audio Event %d\n",dwAudioCh);
+			//pdx->audio[dwAudioCh].pos = pdx->m_dwAudioPTKSize;
+			//snd_pcm_period_elapsed(pdx->audio[dwAudioCh].substream);
+			queue_work(pdx->auwq,&pdx->audio[dwAudioCh].audiowork);
+			//pdx->m_AudioInfo[dwAudioCh].pStatusInfo[nIndex].byLock = MEM_UNLOCK;
+
+		}
+		else
+		{
+			printk("No Audio Buffer Write %d",dwAudioCh);
+
+		}
 	}
-   return 0;
+	return 0;
 }
 
 int SetAudioQuene( struct hws_pcie_dev *pdx,int dwAudioCh)
@@ -4539,25 +4535,25 @@ int SetAudioQuene( struct hws_pcie_dev *pdx,int dwAudioCh)
 	//printk("SetAudioQuene =%d",dwAudioCh);
 	if(!pdx->m_bACapStarted[dwAudioCh])
 	{
-		  return -1 ;
+		return -1 ;
 	}
 	if(!pdx->m_bAudioRun[dwAudioCh])
 	{
-				if(pdx->m_bAudioStop[dwAudioCh] == 1)
-				{
-					pdx->m_bAudioStop[dwAudioCh] =0;
-					//DbgPrint("DpcForIsr_Audio0 Exit Event[%d]\n",dwAudioCh);
-				}
-				pdx->m_nAudioBusy[dwAudioCh] =0;
-				return status;
+		if(pdx->m_bAudioStop[dwAudioCh] == 1)
+		{
+			pdx->m_bAudioStop[dwAudioCh] =0;
+			//DbgPrint("DpcForIsr_Audio0 Exit Event[%d]\n",dwAudioCh);
+		}
+		pdx->m_nAudioBusy[dwAudioCh] =0;
+		return status;
 	}
-	
+
 	pdx->m_nAudioBusy[dwAudioCh]  = 1;
 
 	status = MemCopyAudioToSteam(pdx,dwAudioCh);
 
 
-	pdx->m_nAudioBusy[dwAudioCh] = 0;	
+	pdx->m_nAudioBusy[dwAudioCh] = 0;
 
 
 	return status;
@@ -4566,237 +4562,237 @@ int SetAudioQuene( struct hws_pcie_dev *pdx,int dwAudioCh)
 
 static void DpcForIsr_Audio0(unsigned long data)
 {
-	    
-		int index;
-	 	struct hws_pcie_dev *pdx;
-		//pdx = sys_dvrs_hw_pdx;
-		pdx = (struct hws_pcie_dev *)data;
-		//unsigned long *pdata = (unsigned long *)data;
-		//curr_buf_index = *pdata;
-		index =0;
-		SetAudioQuene(pdx,index);
-		
+
+	int index;
+	struct hws_pcie_dev *pdx;
+	//pdx = sys_dvrs_hw_pdx;
+	pdx = (struct hws_pcie_dev *)data;
+	//unsigned long *pdata = (unsigned long *)data;
+	//curr_buf_index = *pdata;
+	index =0;
+	SetAudioQuene(pdx,index);
+
 }
 #if 0
 static void DpcForIsr_Audio1(unsigned long data)
 {
-	    
-		int index;
-	 	struct hws_pcie_dev *pdx;
-		//pdx = sys_dvrs_hw_pdx;
-		pdx = (struct hws_pcie_dev *)data;
-		//unsigned long *pdata = (unsigned long *)data;
-		//curr_buf_index = *pdata;
-		index =1;
-		SetAudioQuene(pdx,index);
-		
+
+int index;
+struct hws_pcie_dev *pdx;
+//pdx = sys_dvrs_hw_pdx;
+pdx = (struct hws_pcie_dev *)data;
+//unsigned long *pdata = (unsigned long *)data;
+//curr_buf_index = *pdata;
+index =1;
+SetAudioQuene(pdx,index);
+
 }
 static void DpcForIsr_Audio2(unsigned long data)
 {
-	    
-		int index;
-	 	struct hws_pcie_dev *pdx;
-		//pdx = sys_dvrs_hw_pdx;
-		pdx = (struct hws_pcie_dev *)data;
-		//unsigned long *pdata = (unsigned long *)data;
-		//curr_buf_index = *pdata;
-		index =2;
-		SetAudioQuene(pdx,index);
-		
+
+int index;
+struct hws_pcie_dev *pdx;
+//pdx = sys_dvrs_hw_pdx;
+pdx = (struct hws_pcie_dev *)data;
+//unsigned long *pdata = (unsigned long *)data;
+//curr_buf_index = *pdata;
+index =2;
+SetAudioQuene(pdx,index);
+
 }
 static void DpcForIsr_Audio3(unsigned long data)
 {
-	    
-		int index;
-	 	struct hws_pcie_dev *pdx;
-		//pdx = sys_dvrs_hw_pdx;
-		pdx = (struct hws_pcie_dev *)data;
-		//unsigned long *pdata = (unsigned long *)data;
-		//curr_buf_index = *pdata;
-		index =3;
-		SetAudioQuene(pdx,index);
+
+int index;
+struct hws_pcie_dev *pdx;
+//pdx = sys_dvrs_hw_pdx;
+pdx = (struct hws_pcie_dev *)data;
+//unsigned long *pdata = (unsigned long *)data;
+//curr_buf_index = *pdata;
+index =3;
+SetAudioQuene(pdx,index);
 }
-#endif 
+#endif
 
 static void DpcForIsr_Video0(unsigned long data)
+{
+	int i = 0;
+	int ret;
+	//int curr_buf_index;
+	struct hws_pcie_dev *pdx;
+	//pdx = sys_dvrs_hw_pdx;
+	pdx = (struct hws_pcie_dev *)data;
+	//unsigned long *pdata = (unsigned long *)data;
+	//curr_buf_index = *pdata;
+	//printk("DpcForIsr_Video0\n");
+	ret = SetQuene(pdx,i);
+	//printk("[%X] pdx->m_bVCapStarted[i]=%d  ret=%d\n", pdx->pdev->device,pdx->m_bVCapStarted[i],ret);
+	if(ret != 0 )
 	{
-		int i = 0;
-	    int ret;
-		//int curr_buf_index;
-	 	struct hws_pcie_dev *pdx;
-		//pdx = sys_dvrs_hw_pdx;
-		pdx = (struct hws_pcie_dev *)data;
-		//unsigned long *pdata = (unsigned long *)data;
-		//curr_buf_index = *pdata;
-		//printk("DpcForIsr_Video0\n");
-		ret = SetQuene(pdx,i);
-		//printk("[%X] pdx->m_bVCapStarted[i]=%d  ret=%d\n", pdx->pdev->device,pdx->m_bVCapStarted[i],ret);
-		if(ret != 0 )
-		{
-			return;
-
-		}
-		
-		if(pdx->m_bVCapStarted[i] == TRUE)
-		{
-			//printk("pdx->m_bVCapIntDone[i] = %d\n", pdx->m_bVCapIntDone[i]);
-			//printk("pdx->m_pVideoEvent[i] = %d\n", pdx->m_pVideoEvent[i]);
-			
-			if((pdx->m_bVCapIntDone[i] == TRUE) && pdx->m_pVideoEvent[i])
-			{
-				pdx->m_bVCapIntDone[i] = FALSE;
-				//printk("pdx->m_bChangeVideoSize[i] = %d\n",pdx->m_bChangeVideoSize[i]);
-				if((!pdx->m_bChangeVideoSize[i])&&(pdx->m_pVideoEvent[i])) 
-				{
-					
-					 //pdx->wq_flag[i] = 1;
-					 //wake_up_interruptible(&pdx->wq_video[i]);  
-					 //printk("Set Event\n");
-					 queue_work(pdx->wq,&pdx->video[i].videowork);
-				}
-				else
-				{
-					 pdx->m_bChangeVideoSize[i] = 0;
-				}
-				
-			}
-		}
-	}
-	#if 0
-	static void DpcForIsr_Video1(unsigned long data)
-	{
-	
-		int i = 1;
-		int ret;
-	    //int curr_buf_index;
-	   struct hws_pcie_dev *pdx;
-		pdx = (struct hws_pcie_dev *)data;
-		//pdx = sys_dvrs_hw_pdx;
-		
-		//unsigned long *pdata = (unsigned long *)data;
-		//curr_buf_index = *pdata;
-		
-		ret = SetQuene(pdx,i);
-		if(ret != 0 ) 
-		{
-		
-			return;
-		}
-	
-		if(pdx->m_bVCapStarted[i] == TRUE)
-		{
-			
-			if(pdx->m_bVCapIntDone[i] == TRUE && pdx->m_pVideoEvent[i])
-			{
-                pdx->m_bVCapIntDone[i] = FALSE;
-				if(!pdx->m_bChangeVideoSize[i]) 
-				{
-					if((!pdx->m_bChangeVideoSize[i])&&(pdx->m_pVideoEvent[i])) 
-					{
-					  //pdx->wq_flag[i] = 1;
-					  //wake_up_interruptible(&pdx->wq_video[i]); 
-					   queue_work(pdx->wq,&pdx->video[i].videowork);
-					}
-				}
-				else
-				{
-					pdx->m_bChangeVideoSize[i] = 0;
-				}
-			}
-		}
-	}
-	
-	static void DpcForIsr_Video2(unsigned long data)
-	{
-	
-		int i = 2;
-		int ret;
-		//int curr_buf_index;
-		struct hws_pcie_dev *pdx;
-		//pdx = sys_dvrs_hw_pdx;
-		pdx = (struct hws_pcie_dev *)data;
-		//unsigned long *pdata = (unsigned long *)data;
-		//curr_buf_index = *pdata;
-		 ret = SetQuene(pdx,i);
-		if(ret != 0 ) 
-		{
-			return;
-		}
-		
-		if(pdx->m_bVCapStarted[i] == TRUE)
-		{
-			
-			if(pdx->m_bVCapIntDone[i] == TRUE && pdx->m_pVideoEvent[i])
-			{
-                pdx->m_bVCapIntDone[i] = FALSE;
-				if(!pdx->m_bChangeVideoSize[i]) 
-				{
-					if((!pdx->m_bChangeVideoSize[i])&&(pdx->m_pVideoEvent[i])) 
-					{
-					   //pdx->wq_flag[i] = 1;
-					   //wake_up_interruptible(&pdx->wq_video[i]); 
-					    queue_work(pdx->wq,&pdx->video[i].videowork);
-					}
-				}
-				else
-				{
-					pdx->m_bChangeVideoSize[i] = 0;
-				}
-			}
-		}
+		return;
 
 	}
-	
-	static void DpcForIsr_Video3(unsigned long data)
+
+	if(pdx->m_bVCapStarted[i] == TRUE)
 	{
-	
-		int i = 3;
-		int ret;
-		//int curr_buf_index;
-		struct hws_pcie_dev *pdx;
-		//pdx = sys_dvrs_hw_pdx;
-		pdx = (struct hws_pcie_dev *)data;
-		//unsigned long *pdata = (unsigned long *)data;
-		//curr_buf_index = *pdata;
-		//mutex_lock(&pdx->video_mutex[i]); 
-		//printk("DpcForIsr_Video3 data = [%d]%d \n",i,curr_buf_index);
-		
-		ret = SetQuene(pdx,i);
-		if(ret != 0 ) 
+		//printk("pdx->m_bVCapIntDone[i] = %d\n", pdx->m_bVCapIntDone[i]);
+		//printk("pdx->m_pVideoEvent[i] = %d\n", pdx->m_pVideoEvent[i]);
+
+		if((pdx->m_bVCapIntDone[i] == TRUE) && pdx->m_pVideoEvent[i])
 		{
-			//spin_unlock(&pdx->video_lock[i]);
-			//mutex_unlock(&pdx->video_mutex[i]);
-			return;
-		}
-		
-		if(pdx->m_bVCapStarted[i] == TRUE)
-		{
-			
-			if(pdx->m_bVCapIntDone[i] == TRUE && pdx->m_pVideoEvent[i])
+			pdx->m_bVCapIntDone[i] = FALSE;
+			//printk("pdx->m_bChangeVideoSize[i] = %d\n",pdx->m_bChangeVideoSize[i]);
+			if((!pdx->m_bChangeVideoSize[i])&&(pdx->m_pVideoEvent[i]))
 			{
-                pdx->m_bVCapIntDone[i] = FALSE;
-				if(!pdx->m_bChangeVideoSize[i]) 
-				{
-					if((!pdx->m_bChangeVideoSize[i])&&(pdx->m_pVideoEvent[i])) 
-					{
-					//KeSetEvent(pdx->m_pVideoEvent[i], 0, FALSE);
-					 //printk("SetEvenT[%d]\n",i);
-					 //kill_fasync (&hw_async_video3, SIGIO, POLL_IN);
-					 //pdx->wq_flag[i] = 1;
-					 //wake_up_interruptible(&pdx->wq_video[i]); 
-					  queue_work(pdx->wq,&pdx->video[i].videowork);
-					}
-				}
-				else
-				{
-					pdx->m_bChangeVideoSize[i] = 0;
-				}
+
+				//pdx->wq_flag[i] = 1;
+				//wake_up_interruptible(&pdx->wq_video[i]);
+				//printk("Set Event\n");
+				queue_work(pdx->wq,&pdx->video[i].videowork);
 			}
+			else
+			{
+				pdx->m_bChangeVideoSize[i] = 0;
+			}
+
 		}
-	//spin_unlock(&pdx->video_lock[i]);	
-	//mutex_unlock(&pdx->video_mutex[i]);
-		
-}	
+	}
+}
+#if 0
+static void DpcForIsr_Video1(unsigned long data)
+{
+
+int i = 1;
+int ret;
+//int curr_buf_index;
+struct hws_pcie_dev *pdx;
+pdx = (struct hws_pcie_dev *)data;
+//pdx = sys_dvrs_hw_pdx;
+
+//unsigned long *pdata = (unsigned long *)data;
+//curr_buf_index = *pdata;
+
+ret = SetQuene(pdx,i);
+if(ret != 0 )
+{
+
+return;
+}
+
+if(pdx->m_bVCapStarted[i] == TRUE)
+{
+
+if(pdx->m_bVCapIntDone[i] == TRUE && pdx->m_pVideoEvent[i])
+{
+pdx->m_bVCapIntDone[i] = FALSE;
+if(!pdx->m_bChangeVideoSize[i])
+{
+if((!pdx->m_bChangeVideoSize[i])&&(pdx->m_pVideoEvent[i]))
+{
+//pdx->wq_flag[i] = 1;
+//wake_up_interruptible(&pdx->wq_video[i]);
+queue_work(pdx->wq,&pdx->video[i].videowork);
+}
+}
+else
+{
+pdx->m_bChangeVideoSize[i] = 0;
+}
+}
+}
+}
+
+static void DpcForIsr_Video2(unsigned long data)
+{
+
+int i = 2;
+int ret;
+//int curr_buf_index;
+struct hws_pcie_dev *pdx;
+//pdx = sys_dvrs_hw_pdx;
+pdx = (struct hws_pcie_dev *)data;
+//unsigned long *pdata = (unsigned long *)data;
+//curr_buf_index = *pdata;
+ret = SetQuene(pdx,i);
+if(ret != 0 )
+{
+return;
+}
+
+if(pdx->m_bVCapStarted[i] == TRUE)
+{
+
+if(pdx->m_bVCapIntDone[i] == TRUE && pdx->m_pVideoEvent[i])
+{
+pdx->m_bVCapIntDone[i] = FALSE;
+if(!pdx->m_bChangeVideoSize[i])
+{
+if((!pdx->m_bChangeVideoSize[i])&&(pdx->m_pVideoEvent[i]))
+{
+//pdx->wq_flag[i] = 1;
+//wake_up_interruptible(&pdx->wq_video[i]);
+queue_work(pdx->wq,&pdx->video[i].videowork);
+}
+}
+else
+{
+pdx->m_bChangeVideoSize[i] = 0;
+}
+}
+}
+
+}
+
+static void DpcForIsr_Video3(unsigned long data)
+{
+
+int i = 3;
+int ret;
+//int curr_buf_index;
+struct hws_pcie_dev *pdx;
+//pdx = sys_dvrs_hw_pdx;
+pdx = (struct hws_pcie_dev *)data;
+//unsigned long *pdata = (unsigned long *)data;
+//curr_buf_index = *pdata;
+//mutex_lock(&pdx->video_mutex[i]);
+//printk("DpcForIsr_Video3 data = [%d]%d \n",i,curr_buf_index);
+
+ret = SetQuene(pdx,i);
+if(ret != 0 )
+{
+//spin_unlock(&pdx->video_lock[i]);
+//mutex_unlock(&pdx->video_mutex[i]);
+return;
+}
+
+if(pdx->m_bVCapStarted[i] == TRUE)
+{
+
+if(pdx->m_bVCapIntDone[i] == TRUE && pdx->m_pVideoEvent[i])
+{
+pdx->m_bVCapIntDone[i] = FALSE;
+if(!pdx->m_bChangeVideoSize[i])
+{
+if((!pdx->m_bChangeVideoSize[i])&&(pdx->m_pVideoEvent[i]))
+{
+//KeSetEvent(pdx->m_pVideoEvent[i], 0, FALSE);
+//printk("SetEvenT[%d]\n",i);
+//kill_fasync (&hw_async_video3, SIGIO, POLL_IN);
+//pdx->wq_flag[i] = 1;
+//wake_up_interruptible(&pdx->wq_video[i]);
+queue_work(pdx->wq,&pdx->video[i].videowork);
+}
+}
+else
+{
+pdx->m_bChangeVideoSize[i] = 0;
+}
+}
+}
+//spin_unlock(&pdx->video_lock[i]);
+//mutex_unlock(&pdx->video_mutex[i]);
+
+}
 #endif
 //-----------------------------
 /* Interrupt handler. Read/modify/write the command register to disable
@@ -4806,27 +4802,27 @@ static irqreturn_t irqhandler(int irq, void  *info)
 {
 	struct hws_pcie_dev *pdx = (struct hws_pcie_dev *)(info);
 	//struct pci_dev *pdev = pdx->pdev;
-	
+
 	u32 dma_status;
 	u32 Int_Value =0;
 	u32 IntState;
 	u32 tmp;
 	u32 cnt;
-			
-			dma_status =  READ_REGISTER_ULONG(pdx,(u32)(CVBS_IN_BASE));
-			//printk("dma_status %x\n", dma_status);
-			if(((dma_status&0x04)==0x04)&&(dma_status !=0xffffffff))
+
+	dma_status =  READ_REGISTER_ULONG(pdx,(u32)(CVBS_IN_BASE));
+	//printk("dma_status %x\n", dma_status);
+	if(((dma_status&0x04)==0x04)&&(dma_status !=0xffffffff))
+	{
+		IntState= READ_REGISTER_ULONG(pdx,(u32)(CVBS_IN_BASE + 1 * PCIE_BARADDROFSIZE));
+		if(IntState>0)
+		{
+			for(cnt =0; cnt <100; cnt ++)
 			{
-				IntState= READ_REGISTER_ULONG(pdx,(u32)(CVBS_IN_BASE + 1 * PCIE_BARADDROFSIZE));
-				if(IntState>0)
+				if(IntState == 0) break;
+				if((IntState&0x01) == 0x01) // CH0  done
 				{
-					for(cnt =0; cnt <100; cnt ++)				
-					{
-					if(IntState == 0) break;
-					if((IntState&0x01) == 0x01) // CH0  done
-					{
-						pdx->m_bVCapIntDone[0] = 1;
-					
+					pdx->m_bVCapIntDone[0] = 1;
+
 					Int_Value +=  0x01;
 					if(pdx->m_nVideoBusy[0] ==0  )
 					{
@@ -4839,70 +4835,70 @@ static irqreturn_t irqhandler(int irq, void  *info)
 							//printk("Set OnInterrupt %x %d %d\n", 0,tmp,tmp2);
 						}
 					}
-							
-			 	 	}
-					#if 0
-			 		if((IntState&0x02) == 0x02) // CH1  done
-			 		{
-					//printk("OnInterrupt %x\n", 1);
-					pdx->m_bVCapIntDone[1] = 1;
-		
-					Int_Value +=  0x02;
-					if(pdx->m_nVideoBusy[1] ==0  )
-					{
-						 tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (32+1) * PCIE_BARADDROFSIZE)))&0x01;
-						if(pdx->video_data[1] != tmp)
-						{
-							pdx->m_nVideoBufferIndex[1] =  tmp;
-							pdx->video_data[1]= pdx->m_nVideoBufferIndex[1];
-							tasklet_schedule(&pdx->dpc_video_tasklet[1]);  
-						}
-					}
-					
-					}
-				if((IntState&0x04) == 0x04) // CH2  done
-				{
-				//printk("OnInterrupt %x\n", 2);
-				pdx->m_bVCapIntDone[2] = 1;
-		
-				Int_Value +=  0x04;
-				if(pdx->m_nVideoBusy[2] ==0  )
-				{
-					 tmp = (READ_REGISTER_ULONG(pdx,(+ CVBS_IN_BASE + (32+2) * PCIE_BARADDROFSIZE)))&0x01;
-					if(pdx->video_data[2] != tmp)
-					{
-						pdx->m_nVideoBufferIndex[2] = tmp;
-						pdx->video_data[2]= pdx->m_nVideoBufferIndex[2];
-						tasklet_schedule(&pdx->dpc_video_tasklet[2]);  
-					}
+
 				}
-				}
-				if((IntState &0x08) == 0x08) // CH1=3  done
+				#if 0
+				if((IntState&0x02) == 0x02) // CH1  done
 				{
-				//printk("OnInterrupt %x\n", 3);
-				pdx->m_bVCapIntDone[3] = 1;
-	
-				Int_Value +=  0x08;
-			
-				if(pdx->m_nVideoBusy[3] ==0  )
+				//printk("OnInterrupt %x\n", 1);
+				pdx->m_bVCapIntDone[1] = 1;
+
+				Int_Value +=  0x02;
+				if(pdx->m_nVideoBusy[1] ==0  )
 				{
-					 tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (32+3) * PCIE_BARADDROFSIZE)))&0x01;
-					if(pdx->video_data[3] != tmp)
-					{
-						pdx->m_nVideoBufferIndex[3] = tmp;
-						pdx->video_data[3]= pdx->m_nVideoBufferIndex[3];
-						//printk("OnInterrupt-%x [1] %d\n", 3,video_data[3]);
-						tasklet_schedule(&pdx->dpc_video_tasklet[3]);  
-					}
-				}
-				}
+				tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (32+1) * PCIE_BARADDROFSIZE)))&0x01;
+				if(pdx->video_data[1] != tmp)
+				{
+				pdx->m_nVideoBufferIndex[1] =  tmp;
+				pdx->video_data[1]= pdx->m_nVideoBufferIndex[1];
+				tasklet_schedule(&pdx->dpc_video_tasklet[1]);
+			}
+			}
+
+			}
+			if((IntState&0x04) == 0x04) // CH2  done
+			{
+			//printk("OnInterrupt %x\n", 2);
+			pdx->m_bVCapIntDone[2] = 1;
+
+			Int_Value +=  0x04;
+			if(pdx->m_nVideoBusy[2] ==0  )
+			{
+			tmp = (READ_REGISTER_ULONG(pdx,(+ CVBS_IN_BASE + (32+2) * PCIE_BARADDROFSIZE)))&0x01;
+			if(pdx->video_data[2] != tmp)
+			{
+			pdx->m_nVideoBufferIndex[2] = tmp;
+			pdx->video_data[2]= pdx->m_nVideoBufferIndex[2];
+			tasklet_schedule(&pdx->dpc_video_tasklet[2]);
+			}
+			}
+			}
+			if((IntState &0x08) == 0x08) // CH1=3  done
+			{
+			//printk("OnInterrupt %x\n", 3);
+			pdx->m_bVCapIntDone[3] = 1;
+
+			Int_Value +=  0x08;
+
+			if(pdx->m_nVideoBusy[3] ==0  )
+			{
+			tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (32+3) * PCIE_BARADDROFSIZE)))&0x01;
+			if(pdx->video_data[3] != tmp)
+			{
+			pdx->m_nVideoBufferIndex[3] = tmp;
+			pdx->video_data[3]= pdx->m_nVideoBufferIndex[3];
+			//printk("OnInterrupt-%x [1] %d\n", 3,video_data[3]);
+			tasklet_schedule(&pdx->dpc_video_tasklet[3]);
+			}
+			}
+			}
 			#endif
 			//-------
 			//------------------------------
-			
+
 			if((IntState &0x100) == 0x100) // Audio ch0 done
 			{
-	
+
 				Int_Value +=  0x100;
 				//printk("OnInterrupt Audio  %x\n", 0);
 				if(pdx->m_nAudioBusy[0] ==0 )
@@ -4910,73 +4906,73 @@ static irqreturn_t irqhandler(int irq, void  *info)
 					tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (40+0) * PCIE_BARADDROFSIZE)))&0x01;
 					pdx->m_nAudioBufferIndex[0] = tmp;
 					pdx->audio_data[0]= pdx->m_nAudioBufferIndex[0];
-					tasklet_schedule(&pdx->dpc_audio_tasklet[0]); 
+					tasklet_schedule(&pdx->dpc_audio_tasklet[0]);
 				}
 			}
 			#if 0
 			if((IntState &0x200) == 0x200) // Audio ch1 done
 			{
-	
-				Int_Value +=  0x200;
-				if(pdx->m_nAudioBusy[1] ==0 )
-				{
-					tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (40+1) * PCIE_BARADDROFSIZE)))&0x01;
-					pdx->m_nAudioBufferIndex[1] = tmp;
-					pdx->audio_data[1]= pdx->m_nAudioBufferIndex[1];
-					tasklet_schedule(&pdx->dpc_audio_tasklet[1]); 
-				}
+
+			Int_Value +=  0x200;
+			if(pdx->m_nAudioBusy[1] ==0 )
+			{
+			tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (40+1) * PCIE_BARADDROFSIZE)))&0x01;
+			pdx->m_nAudioBufferIndex[1] = tmp;
+			pdx->audio_data[1]= pdx->m_nAudioBufferIndex[1];
+			tasklet_schedule(&pdx->dpc_audio_tasklet[1]);
+			}
 			}
 			if((IntState &0x400) == 0x400) // Audio ch2 done
 			{
-	
-				Int_Value +=  0x400;
-				
-				if(pdx->m_nAudioBusy[2] ==0 )
-				{
-					//DbgPrint("OnInterrupt Audio ch-%x pdx->m_nAudioBusy[2] =%d\n", 2,pdx->m_nAudioBusy[2]);
-					tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (40+2) * PCIE_BARADDROFSIZE)))&0x01;
-					pdx->m_nAudioBufferIndex[2] = tmp;
-					pdx->audio_data[2]= pdx->m_nAudioBufferIndex[2];
-					tasklet_schedule(&pdx->dpc_audio_tasklet[2]); 
-				}
+
+			Int_Value +=  0x400;
+
+			if(pdx->m_nAudioBusy[2] ==0 )
+			{
+			//DbgPrint("OnInterrupt Audio ch-%x pdx->m_nAudioBusy[2] =%d\n", 2,pdx->m_nAudioBusy[2]);
+			tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (40+2) * PCIE_BARADDROFSIZE)))&0x01;
+			pdx->m_nAudioBufferIndex[2] = tmp;
+			pdx->audio_data[2]= pdx->m_nAudioBufferIndex[2];
+			tasklet_schedule(&pdx->dpc_audio_tasklet[2]);
+			}
 			}
 			if((IntState &0x800) == 0x800) // Audio ch3 done
 			{
-	
-				Int_Value +=  0x800;
-				//DbgPrint("OnInterrupt Audio ch-%x pdx->m_nAudioBusy[3] =%d\n", 3,pdx->m_nAudioBusy[3]);
-				if(pdx->m_nAudioBusy[3] ==0 )
-				{
-					tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (40+3) * PCIE_BARADDROFSIZE)))&0x01;
-					pdx->m_nAudioBufferIndex[3] = tmp;
-					pdx->audio_data[3]= pdx->m_nAudioBufferIndex[3];
-					tasklet_schedule(&pdx->dpc_audio_tasklet[3]); 
-				}
-			}
-			#endif 
-			//--------------
-			Int_Value = Int_Value&0x00ffffff;				
-			WRITE_REGISTER_ULONG(pdx,(u32)(0x4000 + (PCIE_BARADDROFSIZE * 1)), Int_Value);
-			IntState= READ_REGISTER_ULONG(pdx,(u32)(CVBS_IN_BASE + 1 * PCIE_BARADDROFSIZE));				
-			if(IntState == 0) break;					
-			}
-					//printk("OnInterrupt IRQ_HANDLED  %X\n", pdev->device);
-					return IRQ_HANDLED;
-			}
-			else
+
+			Int_Value +=  0x800;
+			//DbgPrint("OnInterrupt Audio ch-%x pdx->m_nAudioBusy[3] =%d\n", 3,pdx->m_nAudioBusy[3]);
+			if(pdx->m_nAudioBusy[3] ==0 )
 			{
-					//printk("OnInterrupt[1] IRQ_NONE  %X\n", pdev->device);
-					return IRQ_NONE;
+			tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (40+3) * PCIE_BARADDROFSIZE)))&0x01;
+			pdx->m_nAudioBufferIndex[3] = tmp;
+			pdx->audio_data[3]= pdx->m_nAudioBufferIndex[3];
+			tasklet_schedule(&pdx->dpc_audio_tasklet[3]);
 			}
+			}
+			#endif
+			//--------------
+			Int_Value = Int_Value&0x00ffffff;
+			WRITE_REGISTER_ULONG(pdx,(u32)(0x4000 + (PCIE_BARADDROFSIZE * 1)), Int_Value);
+			IntState= READ_REGISTER_ULONG(pdx,(u32)(CVBS_IN_BASE + 1 * PCIE_BARADDROFSIZE));
+			if(IntState == 0) break;
+			}
+			//printk("OnInterrupt IRQ_HANDLED  %X\n", pdev->device);
+			return IRQ_HANDLED;
 		}
 		else
 		{
-				//printk("OnInterrupt[1] IRQ_NONE  %X\n", pdev->device);
-				return IRQ_NONE;
+			//printk("OnInterrupt[1] IRQ_NONE  %X\n", pdev->device);
+			return IRQ_NONE;
 		}
+	}
+	else
+	{
+		//printk("OnInterrupt[1] IRQ_NONE  %X\n", pdev->device);
+		return IRQ_NONE;
+	}
 
 	//-------------------------------
-	
+
 }
 
 static struct hws_pcie_dev *alloc_dev_instance(struct pci_dev *pdev)
@@ -5026,11 +5022,11 @@ static void SetDMAAddress(struct hws_pcie_dev *pdx)
 	//u32 Addr2PageSize;
 	u32 PhyAddr_A_Low;
 	u32 PhyAddr_A_High;
-	
+
 	//u32 PhyAddr_A_Low2;
 	//u32 PhyAddr_A_High2;
 	//u32 PCI_Addr2;
-	
+
 	u32 PCI_Addr;
 	//u32 AVALON_Addr;
 	u32 cnt;
@@ -5047,70 +5043,70 @@ static void SetDMAAddress(struct hws_pcie_dev *pdx)
 	PhyAddr_A_High = 0;
 	PhyAddr_A_Low=0;
 	PCI_Addr =0;
-    
-	
-	//------------------------------------------ // re write dma register 
+
+
+	//------------------------------------------ // re write dma register
 
 	Addrmsk = PCI_E_BAR_ADD_MASK;
 	AddrLowmsk = PCI_E_BAR_ADD_LOWMASK;
 
 	//printk("[MV]1DispatchCreate :Addrmsk = %X  AddrPageSize =%X Addr2PageSize =%X \n", Addrmsk, AddrPageSize, Addr2PageSize);
-	
+
 	cnt = 0x208;  // Table address
 	for (i = 0; i< pdx->m_nMaxChl; i++)
 	{
 		//printk("[MV] pdx->m_pbyVideoBuffer[%d]=%x\n", i, pdx->m_pbyVideoBuffer[i]);
 		if (pdx->m_pbyVideoBuffer[i])
 		{
-				PhyAddr_A_Low = pdx->m_dwVideoBuffer[i];
-				PhyAddr_A_High = pdx->m_dwVideoHighBuffer[i];
-				
-				PCI_Addr = (PhyAddr_A_Low&AddrLowmsk);
-				PhyAddr_A_Low = (PhyAddr_A_Low&Addrmsk);
-				
-				
-				//printk("[MV]1-pdx->m_dwVideoBuffer[%d]-%X\n",i,pdx->m_dwVideoBuffer[i]);
-				//-------------------------------------------------------------------------------
-				WRITE_REGISTER_ULONG(pdx,(PCI_ADDR_TABLE_BASE + cnt),PhyAddr_A_High);
-				WRITE_REGISTER_ULONG(pdx,(PCI_ADDR_TABLE_BASE + cnt+PCIE_BARADDROFSIZE),PhyAddr_A_Low);  //Entry 0
-				//----------------------------------------
-				m_ReadTmp =  READ_REGISTER_ULONG(pdx,(PCI_ADDR_TABLE_BASE + cnt));
-				m_ReadTmp2 = READ_REGISTER_ULONG(pdx,(PCI_ADDR_TABLE_BASE + cnt+PCIE_BARADDROFSIZE));
-				//printk("[MV]1-PCI_Addr[%d] :PhyAddr_A_Low  %X=%X  PhyAddr_A_High %X=%X\n", i, PhyAddr_A_Low, m_ReadTmp2, PhyAddr_A_High, m_ReadTmp);
-			   	
+			PhyAddr_A_Low = pdx->m_dwVideoBuffer[i];
+			PhyAddr_A_High = pdx->m_dwVideoHighBuffer[i];
 
-				//--------------------------
-				WRITE_REGISTER_ULONG(pdx,( CBVS_IN_BUF_BASE + (i*PCIE_BARADDROFSIZE)), ((i+1)*PCIEBAR_AXI_BASE)+PCI_Addr); //Buffer 1 address
-				halfframeLength = pdx->m_format[i].HLAF_SIZE/16;
-				WRITE_REGISTER_ULONG(pdx,( CBVS_IN_BUF_BASE2 + (i*PCIE_BARADDROFSIZE)),halfframeLength); //Buffer 1 address
+			PCI_Addr = (PhyAddr_A_Low&AddrLowmsk);
+			PhyAddr_A_Low = (PhyAddr_A_Low&Addrmsk);
 
-				
-				m_ReadTmp =  READ_REGISTER_ULONG(pdx,(  CBVS_IN_BUF_BASE + (i*PCIE_BARADDROFSIZE)));
-				m_ReadTmp2 = READ_REGISTER_ULONG(pdx,(  CBVS_IN_BUF_BASE2 + (i*PCIE_BARADDROFSIZE)));
-				//printk("[MV]1-Avalone [X64]BUF[%d]:BUF1=%X  BUF2=%X\n", i,  m_ReadTmp,  m_ReadTmp2);
-			
-				//---------------------------
-				
+
+			//printk("[MV]1-pdx->m_dwVideoBuffer[%d]-%X\n",i,pdx->m_dwVideoBuffer[i]);
+			//-------------------------------------------------------------------------------
+			WRITE_REGISTER_ULONG(pdx,(PCI_ADDR_TABLE_BASE + cnt),PhyAddr_A_High);
+			WRITE_REGISTER_ULONG(pdx,(PCI_ADDR_TABLE_BASE + cnt+PCIE_BARADDROFSIZE),PhyAddr_A_Low);  //Entry 0
+			//----------------------------------------
+			m_ReadTmp =  READ_REGISTER_ULONG(pdx,(PCI_ADDR_TABLE_BASE + cnt));
+			m_ReadTmp2 = READ_REGISTER_ULONG(pdx,(PCI_ADDR_TABLE_BASE + cnt+PCIE_BARADDROFSIZE));
+			//printk("[MV]1-PCI_Addr[%d] :PhyAddr_A_Low  %X=%X  PhyAddr_A_High %X=%X\n", i, PhyAddr_A_Low, m_ReadTmp2, PhyAddr_A_High, m_ReadTmp);
+
+
+			//--------------------------
+			WRITE_REGISTER_ULONG(pdx,( CBVS_IN_BUF_BASE + (i*PCIE_BARADDROFSIZE)), ((i+1)*PCIEBAR_AXI_BASE)+PCI_Addr); //Buffer 1 address
+			halfframeLength = pdx->m_format[i].HLAF_SIZE/16;
+			WRITE_REGISTER_ULONG(pdx,( CBVS_IN_BUF_BASE2 + (i*PCIE_BARADDROFSIZE)),halfframeLength); //Buffer 1 address
+
+
+			m_ReadTmp =  READ_REGISTER_ULONG(pdx,(  CBVS_IN_BUF_BASE + (i*PCIE_BARADDROFSIZE)));
+			m_ReadTmp2 = READ_REGISTER_ULONG(pdx,(  CBVS_IN_BUF_BASE2 + (i*PCIE_BARADDROFSIZE)));
+			//printk("[MV]1-Avalone [X64]BUF[%d]:BUF1=%X  BUF2=%X\n", i,  m_ReadTmp,  m_ReadTmp2);
+
+			//---------------------------
+
 		}
-		cnt +=8;	
+		cnt +=8;
 		#if 1
 		if(pdx->m_pbyAudioBuffer[i])
 		{
-				PhyAddr_A_Low = pdx->m_dwAudioBuffer[i];
-				PhyAddr_A_High = pdx->m_dwAudioBufferHigh[i];
-				PCI_Addr = (PhyAddr_A_Low&AddrLowmsk);
-				PhyAddr_A_Low = (PhyAddr_A_Low&Addrmsk);
-				//printk("[X1]Audio:PCI_Addr =%X\n",PCI_Addr);
-				//printk("[X1]Audio:-------- - LOW=%X  HIGH =%X\n",pdx->m_dwAudioBuffer[i],pdx->m_dwAudioBufferHigh[i]);
-				WRITE_REGISTER_ULONG(pdx,(CBVS_IN_BUF_BASE + ((8+i)*PCIE_BARADDROFSIZE)), ((i+1)*PCIEBAR_AXI_BASE+PCI_Addr)); //Buffer 1 address
-				m_ReadTmp = READ_REGISTER_ULONG(pdx,(CBVS_IN_BUF_BASE + ((8+i)*PCIE_BARADDROFSIZE)));
-		    	//printk("[X1]Audio:[%d] :--------BUF1: %X=%X\n",i,(PCIEBAR_AXI_BASE+PCI_Addr),m_ReadTmp);
+			PhyAddr_A_Low = pdx->m_dwAudioBuffer[i];
+			PhyAddr_A_High = pdx->m_dwAudioBufferHigh[i];
+			PCI_Addr = (PhyAddr_A_Low&AddrLowmsk);
+			PhyAddr_A_Low = (PhyAddr_A_Low&Addrmsk);
+			//printk("[X1]Audio:PCI_Addr =%X\n",PCI_Addr);
+			//printk("[X1]Audio:-------- - LOW=%X  HIGH =%X\n",pdx->m_dwAudioBuffer[i],pdx->m_dwAudioBufferHigh[i]);
+			WRITE_REGISTER_ULONG(pdx,(CBVS_IN_BUF_BASE + ((8+i)*PCIE_BARADDROFSIZE)), ((i+1)*PCIEBAR_AXI_BASE+PCI_Addr)); //Buffer 1 address
+			m_ReadTmp = READ_REGISTER_ULONG(pdx,(CBVS_IN_BUF_BASE + ((8+i)*PCIE_BARADDROFSIZE)));
+			//printk("[X1]Audio:[%d] :--------BUF1: %X=%X\n",i,(PCIEBAR_AXI_BASE+PCI_Addr),m_ReadTmp);
 		}
-		#endif 
+		#endif
 	}
-	WRITE_REGISTER_ULONG(pdx,INT_EN_REG_BASE, 0x3ffff); //enable PCI Interruput		
-	//WRITE_REGISTER_ULONG(PCIEBR_EN_REG_BASE, 0xFFFFFFFF);	
-	
+	WRITE_REGISTER_ULONG(pdx,INT_EN_REG_BASE, 0x3ffff); //enable PCI Interruput
+	//WRITE_REGISTER_ULONG(PCIEBR_EN_REG_BASE, 0xFFFFFFFF);
+
 }
 
 //-----------------------------------
@@ -5122,7 +5118,7 @@ static void ChangeVideoSize(struct hws_pcie_dev *pdx,int ch,int w,int h,int inte
 	if(ch != 0) return;
 	if(SetVideoFormteSize(pdx,ch,w,h) != 1)
 	{
-		return;		
+		return;
 	}
 	spin_lock_irqsave(&pdx->videoslock[ch], flags);
 	for (j = 0; j<MAX_VIDEO_QUEUE; j++)
@@ -5130,7 +5126,7 @@ static void ChangeVideoSize(struct hws_pcie_dev *pdx,int ch,int w,int h,int inte
 		pdx->m_pVCAPStatus[ch][j].dwWidth = w ;
 		pdx->m_pVCAPStatus[ch][j].dwHeight = h;
 		pdx->m_pVCAPStatus[ch][j].dwinterlace = interlace;
-				
+
 	}
 	spin_unlock_irqrestore(&pdx->videoslock[ch], flags);
 	halfframeLength[0] = pdx->m_format[0].HLAF_SIZE/16;
@@ -5142,15 +5138,15 @@ static void ChangeVideoSize(struct hws_pcie_dev *pdx,int ch,int w,int h,int inte
 	WRITE_REGISTER_ULONG(pdx,(DWORD)(CBVS_IN_BUF_BASE2 + (2*PCIE_BARADDROFSIZE)), halfframeLength[2]); //Buffer 1 address
 	WRITE_REGISTER_ULONG(pdx,(DWORD)(CBVS_IN_BUF_BASE2 + (3*PCIE_BARADDROFSIZE)), halfframeLength[3]); //Buffer 1 address
 
-	
+
 }
 
 static int Get_Video_Status(struct hws_pcie_dev *pdx,unsigned int  ch)
 {
-	int value; 
+	int value;
 	int res_w=0;
 	int res_h=0;
-//	int frame_rate=0;
+	//	int frame_rate=0;
 	int active_video=1;
 	int interlace=0;
 	int offset;
@@ -5163,35 +5159,35 @@ static int Get_Video_Status(struct hws_pcie_dev *pdx,unsigned int  ch)
 	//printk("[MV][%d] active_video %d\n",ch,active_video);
 	if(active_video >0)
 	{
-			offset = 90 + ch*2;
-			//DbgPrint("[MV][%d] active_video %d\n",ch,interlace);
-			value =  READ_REGISTER_ULONG(pdx,(DWORD)(CVBS_IN_BASE + (offset*PCIE_BARADDROFSIZE)));
-			res_w = value&0xFFFF;
-			res_h = (value>>16)&0xFFFF;
-			if(pdx->m_DeviceHW_Version==0)
+		offset = 90 + ch*2;
+		//DbgPrint("[MV][%d] active_video %d\n",ch,interlace);
+		value =  READ_REGISTER_ULONG(pdx,(DWORD)(CVBS_IN_BASE + (offset*PCIE_BARADDROFSIZE)));
+		res_w = value&0xFFFF;
+		res_h = (value>>16)&0xFFFF;
+		if(pdx->m_DeviceHW_Version==0)
+		{
+			if(res_w>3840) res_w = 3840;
+			if(res_h>2160) res_h = 2160;
+		}
+		if(((res_w <=MAX_VIDEO_HW_W) &&(res_h<=MAX_VIDEO_HW_H)&&(interlace==0))||((res_w <=MAX_VIDEO_HW_W) &&(res_h*2<=MAX_VIDEO_HW_H)&&(interlace==1)))
+		{
+			if((res_w !=pdx->m_pVCAPStatus[ch][0].dwWidth )||(res_h!= pdx->m_pVCAPStatus[ch][0].dwHeight)||(pdx->m_pVCAPStatus[ch][0].dwinterlace!=interlace))
 			{
-				if(res_w>3840) res_w = 3840;
-				if(res_h>2160) res_h = 2160;
+				ChangeVideoSize(pdx,ch,res_w,res_h,interlace);
+
 			}
-			if(((res_w <=MAX_VIDEO_HW_W) &&(res_h<=MAX_VIDEO_HW_H)&&(interlace==0))||((res_w <=MAX_VIDEO_HW_W) &&(res_h*2<=MAX_VIDEO_HW_H)&&(interlace==1)))
-			{
-				if((res_w !=pdx->m_pVCAPStatus[ch][0].dwWidth )||(res_h!= pdx->m_pVCAPStatus[ch][0].dwHeight)||(pdx->m_pVCAPStatus[ch][0].dwinterlace!=interlace))
-				{
-					ChangeVideoSize(pdx,ch,res_w,res_h,interlace);
-				
-				}
-			}
-			
+		}
+
 		no_video = 0;
-		//printk("[MV-X1]-[ch-%d]W=%d H=%d interlace =%d %dx%d \n",ch,res_w,res_h,interlace,pdx->m_pVCAPStatus[ch][0].dwWidth, pdx->m_pVCAPStatus[ch][0].dwHeight);	
+		//printk("[MV-X1]-[ch-%d]W=%d H=%d interlace =%d %dx%d \n",ch,res_w,res_h,interlace,pdx->m_pVCAPStatus[ch][0].dwWidth, pdx->m_pVCAPStatus[ch][0].dwHeight);
 	}
 	else
 	{
 		no_video = 1;
 	}
-	
+
 	return no_video;
-	
+
 }
 
 static void CheckVideFmt (struct hws_pcie_dev *pdx)
@@ -5200,84 +5196,84 @@ static void CheckVideFmt (struct hws_pcie_dev *pdx)
 	int i;
 	//DWORD value;
 	//DWORD SetData;
-//	int ret=0;
+	//	int ret=0;
 	//int nNeed_ReInit =0;
-//	unsigned char mark=1;
+	//	unsigned char mark=1;
 
 
-		for(i =0; i<pdx->m_nCurreMaxVideoChl;i++)
+	for(i =0; i<pdx->m_nCurreMaxVideoChl;i++)
+	{
+		#if 0
+		value =  ReadDevReg((DWORD)(CVBS_IN_BASE + ((91+i*2)*PCIE_BARADDROFSIZE)));
+		m_brightness[i] = value&0xFF;
+		m_contrast[i] =  (value>>8)&0xFF;
+		m_hue[i] = (value>>16)&0xFF;
+		m_saturation[i] = (value>>24)&0xFF;
+		//DbgPrint("[MV]value[%d]= %X\n",i,value);
+		if((g_contrast[i] != m_contrast[i])||(g_brightness[i] != m_brightness[i])||(g_saturation[i] != m_saturation[i])||(g_hue[i] != m_hue[i]))
 		{
-			#if 0
-			value =  ReadDevReg((DWORD)(CVBS_IN_BASE + ((91+i*2)*PCIE_BARADDROFSIZE)));
-			m_brightness[i] = value&0xFF;
-			m_contrast[i] =  (value>>8)&0xFF;
-			m_hue[i] = (value>>16)&0xFF;
-			m_saturation[i] = (value>>24)&0xFF;
-			//DbgPrint("[MV]value[%d]= %X\n",i,value);
-			if((g_contrast[i] != m_contrast[i])||(g_brightness[i] != m_brightness[i])||(g_saturation[i] != m_saturation[i])||(g_hue[i] != m_hue[i]))
-			{
-				
-				//DbgPrint("[MV]m_brightness[%d]= %d %d \n",i,m_brightness[i],g_brightness[i]);
-				//DbgPrint("[MV]m_contrast[%d]= %d %d\n",i,m_contrast[i],g_contrast[i]);
-				//DbgPrint("[MV]m_hue[%d]= %d %d \n",i,m_hue[i],g_hue[i]);
-				//DbgPrint("[MV]m_saturation[%d]= %d %d \n",i,m_saturation[i],g_saturation[i] );
-				SetData = g_saturation[i]<<24;
-				SetData  |=g_hue[i]<<16;
-				SetData  |=g_contrast[i]<<8;
-				SetData  |=g_brightness[i];
-				//DbgPrint("[MV]value[%d]= %X %X\n",i,value,SetData);
-				WriteDevReg((DWORD)(CVBS_IN_BASE + ((91+i*2)*PCIE_BARADDROFSIZE)), SetData);
-				
-			}
-			#endif 
-			pdx->m_curr_No_Video[i] = Get_Video_Status(pdx,i);
-			//---------------
-			if((pdx->m_curr_No_Video[i] ==0x1)&&(pdx->m_bVCapStarted[i]==TRUE))
-			{
-				 //printk("[MV]check NoVideo End: [%d]\n",i);
-				 queue_work(pdx->wq,&pdx->video[i].videowork);	
-			}
-			//-----------------
-			
-		}
-		
+
+		//DbgPrint("[MV]m_brightness[%d]= %d %d \n",i,m_brightness[i],g_brightness[i]);
+		//DbgPrint("[MV]m_contrast[%d]= %d %d\n",i,m_contrast[i],g_contrast[i]);
+		//DbgPrint("[MV]m_hue[%d]= %d %d \n",i,m_hue[i],g_hue[i]);
+		//DbgPrint("[MV]m_saturation[%d]= %d %d \n",i,m_saturation[i],g_saturation[i] );
+		SetData = g_saturation[i]<<24;
+		SetData  |=g_hue[i]<<16;
+		SetData  |=g_contrast[i]<<8;
+		SetData  |=g_brightness[i];
+		//DbgPrint("[MV]value[%d]= %X %X\n",i,value,SetData);
+		WriteDevReg((DWORD)(CVBS_IN_BASE + ((91+i*2)*PCIE_BARADDROFSIZE)), SetData);
+
+	}
+	#endif
+	pdx->m_curr_No_Video[i] = Get_Video_Status(pdx,i);
+	//---------------
+	if((pdx->m_curr_No_Video[i] ==0x1)&&(pdx->m_bVCapStarted[i]==TRUE))
+	{
+		//printk("[MV]check NoVideo End: [%d]\n",i);
+		queue_work(pdx->wq,&pdx->video[i].videowork);
+	}
+	//-----------------
+
+	}
+
 }
 
 int MainKsThreadHandle(void *arg)
 {
-        int need_check=0;
-		int i=0;
-		struct hws_pcie_dev *pdx = (struct hws_pcie_dev *)(arg);
-        while(1)
-        {
-              
-			need_check=0;
-			for(i=0; i<pdx->m_nMaxChl; i++)
-			{
-					if(pdx->m_bVCapStarted[i] ==1)
-					{
-						need_check = 1;
-						break;
-					}
-			}
-			if(need_check==1)
-			{
-				CheckVideFmt(pdx);
-			}
-            ssleep(1);
-       		if(kthread_should_stop())
-            {
-                        break;
-             }
+	int need_check=0;
+	int i=0;
+	struct hws_pcie_dev *pdx = (struct hws_pcie_dev *)(arg);
+	while(1)
+	{
 
-        }
-		//printk("MainKsThreadHandle Exit");
-        return 0;
+		need_check=0;
+		for(i=0; i<pdx->m_nMaxChl; i++)
+		{
+			if(pdx->m_bVCapStarted[i] ==1)
+			{
+				need_check = 1;
+				break;
+			}
+		}
+		if(need_check==1)
+		{
+			CheckVideFmt(pdx);
+		}
+		ssleep(1);
+		if(kthread_should_stop())
+		{
+			break;
+		}
+
+	}
+	//printk("MainKsThreadHandle Exit");
+	return 0;
 }
 static void StartKSThread(struct hws_pcie_dev *pdx)
 {
-	    pdx->mMain_tsk = kthread_run(MainKsThreadHandle,(void*)pdx,"StartKSThread task"); 
-	
+	pdx->mMain_tsk = kthread_run(MainKsThreadHandle,(void*)pdx,"StartKSThread task");
+
 }
 
 
@@ -5297,10 +5293,10 @@ static int msi_msix_capable(struct pci_dev *dev, int type)
 {
 	struct pci_bus *bus;
 	int ret;
-    //printk("msi_msix_capable in \n");
+	//printk("msi_msix_capable in \n");
 	if (!dev || dev->no_msi)
 	{
-		 printk("msi_msix_capable no_msi exit \n");
+		printk("msi_msix_capable no_msi exit \n");
 		return 0;
 	}
 
@@ -5344,11 +5340,11 @@ static int probe_scan_for_msi(struct hws_pcie_dev *lro, struct pci_dev *pdev)
 	//		rc = pci_enable_msix(pdev, lro->entry, req_nvec);
 	//		if (rc < 0)
 	//			printk("Couldn't enable MSI-X mode: rc = %d\n", rc);
-	
+
 	//		lro->msix_enabled = 1;
 	//		lro->msi_enabled = 0;
-	//	} 
-	//else  
+	//	}
+	//else
 
 	if (msi_msix_capable(pdev, PCI_CAP_ID_MSI)) {
 		/* enable message signalled interrupts */
@@ -5383,8 +5379,8 @@ static int irq_setup(struct hws_pcie_dev *lro, struct pci_dev *pdev)
 
 	//if (lro->msix_enabled) {
 	//	rc = msix_irq_setup(lro);
-	//} 
-	//else 
+	//}
+	//else
 	{
 		if (!lro->msi_enabled){
 			pci_read_config_byte(pdev, PCI_INTERRUPT_PIN, &val);
@@ -5393,8 +5389,8 @@ static int irq_setup(struct hws_pcie_dev *lro, struct pci_dev *pdev)
 		//irq_flag = lro->msi_enabled ? 0 : IRQF_SHARED;
 		irq_flag = lro->msi_enabled ? IRQF_SHARED:0;
 		//irq_flag = IRQF_SHARED;
-		
-		rc = request_irq(pdev->irq, irqhandler, irq_flag, pci_name(pdev), lro); // IRQF_TRIGGER_HIGH 
+
+		rc = request_irq(pdev->irq, irqhandler, irq_flag, pci_name(pdev), lro); // IRQF_TRIGGER_HIGH
 		if (rc)
 		{
 			//printk("Couldn't use IRQ#%d, rc=%d\n", pdev->irq, rc);
@@ -5431,9 +5427,9 @@ static void __devinit enable_pcie_relaxed_ordering(struct pci_dev *dev)
 //--------------------------------------
 static void InitVideoSys(struct hws_pcie_dev *pdx,int set)
 {
-	// init decoder 
+	// init decoder
 	int i,j;
-//	DWORD dwRest=0;
+	//	DWORD dwRest=0;
 	DWORD m_Valude;
 	if(pdx->m_bStartRun&&(set==0)) return;
 	WRITE_REGISTER_ULONG(pdx,( CVBS_IN_BASE + (0 * PCIE_BARADDROFSIZE)), 0X00);
@@ -5450,10 +5446,10 @@ static void InitVideoSys(struct hws_pcie_dev *pdx,int set)
 				pdx->m_pVCAPStatus[i][j].dwinterlace =0;
 			}
 			//pdx->m_nVideoIndex[i] =0;
-			pdx->m_nAudioBufferIndex[i] =0; 
+			pdx->m_nAudioBufferIndex[i] =0;
 			EnableVideoCapture(pdx,i,0);
 			EnableAudioCapture(pdx,i,0);
-	
+
 		}
 	}
 
@@ -5461,38 +5457,38 @@ static void InitVideoSys(struct hws_pcie_dev *pdx,int set)
 	//start Run
 	//---------------------------------------------
 	WRITE_REGISTER_ULONG(pdx,CVBS_IN_BASE, 0x80000000);
-	//DelayUs(500);	
-    m_Valude= 0x00FFFFFF;
-	m_Valude |= 0x80000000;		  
+	//DelayUs(500);
+	m_Valude= 0x00FFFFFF;
+	m_Valude |= 0x80000000;
 	WRITE_REGISTER_ULONG(pdx,CVBS_IN_BASE, m_Valude);
 	WRITE_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (0 * PCIE_BARADDROFSIZE)), 0X13);
 	pdx->m_bStartRun = 1;
 	//--------------------------------------------------
-	
+
 }
 
 //-------------------------------------
 static void SetHardWareInfo(struct hws_pcie_dev *pdx)
 {
 	switch (pdx->dwDeviceID)
-	 {
-		 default:
-		 {
-			   pdx->m_nCurreMaxVideoChl = 1;
-			   pdx->m_nCurreMaxLineInChl =0;
-			   pdx->m_MaxHWVideoBufferSize = MAX_MM_VIDEO_SIZE;
-		   break;
-		 }
-	   }
-	 //-----------------------
-		if(pdx->m_Device_Version>121)
-	   {
-	   		pdx->m_DeviceHW_Version =1;
-	   }
-	   else
-	   {
-		   pdx->m_DeviceHW_Version =0;
-	   }
+	{
+		default:
+		{
+			pdx->m_nCurreMaxVideoChl = 1;
+			pdx->m_nCurreMaxLineInChl =0;
+			pdx->m_MaxHWVideoBufferSize = MAX_MM_VIDEO_SIZE;
+			break;
+		}
+	}
+	//-----------------------
+	if(pdx->m_Device_Version>121)
+	{
+		pdx->m_DeviceHW_Version =1;
+	}
+	else
+	{
+		pdx->m_DeviceHW_Version =0;
+	}
 
 }
 static int ReadChipId(struct hws_pcie_dev *pdx)
@@ -5508,33 +5504,33 @@ static int ReadChipId(struct hws_pcie_dev *pdx)
 	ULONG m_tmpHWKey;
 	//ULONG m_OEM_code_data;
 	m_dev_ver= READ_REGISTER_ULONG(pdx,CVBS_IN_BASE+(88*PCIE_BARADDROFSIZE));
-  
-		m_tmpVersion = m_dev_ver>>8;
-		pdx->m_Device_Version =  (m_tmpVersion&0xFF);
-		m_tmpVersion = m_dev_ver>>16;
-		pdx->m_Device_SubVersion = (m_tmpVersion&0xFF);
-		pdx->m_Device_SupportYV12 = ((m_dev_ver>>28)&0x0F);
-		m_tmpHWKey =  m_dev_ver>>24;
-		m_tmpHWKey = m_tmpHWKey&0x0F;
-		pdx->m_Device_PortID = m_tmpHWKey&0x03;
-		//n_VideoModle =	READ_REGISTER_ULONG(pdx,0x4000+(4*PCIE_BARADDROFSIZE));
-		//n_VideoModle = (n_VideoModle>>8)&0xFF;
-		//pdx->m_IsHDModel = 1;
-	 	pdx->m_MaxHWVideoBufferSize = MAX_MM_VIDEO_SIZE;
-	 	pdx->m_nMaxChl  = 4;
-	 	pdx->m_bBufferAllocate = FALSE;
-		pdx->mMain_tsk = NULL;
-		pdx->m_dwAudioPTKSize = MAX_DMA_AUDIO_PK_SIZE; //128*16*4;
-		pdx->m_bStartRun = 0;
-		pdx->m_PciDeviceLost =0;
-		
-		WRITE_REGISTER_ULONG(pdx,CVBS_IN_BASE,0x0);
-		//ssleep(100);
-		WRITE_REGISTER_ULONG(pdx,CVBS_IN_BASE,0x10);
-   		//ssleep(500);	
-		//-------
-		SetHardWareInfo(pdx);
-		printk("************[HW]-[VIDV]=[%d]-[%d]-[%d] ************\n",  pdx->m_Device_Version, pdx->m_Device_SubVersion,pdx->m_Device_PortID );	
+
+	m_tmpVersion = m_dev_ver>>8;
+	pdx->m_Device_Version =  (m_tmpVersion&0xFF);
+	m_tmpVersion = m_dev_ver>>16;
+	pdx->m_Device_SubVersion = (m_tmpVersion&0xFF);
+	pdx->m_Device_SupportYV12 = ((m_dev_ver>>28)&0x0F);
+	m_tmpHWKey =  m_dev_ver>>24;
+	m_tmpHWKey = m_tmpHWKey&0x0F;
+	pdx->m_Device_PortID = m_tmpHWKey&0x03;
+	//n_VideoModle =	READ_REGISTER_ULONG(pdx,0x4000+(4*PCIE_BARADDROFSIZE));
+	//n_VideoModle = (n_VideoModle>>8)&0xFF;
+	//pdx->m_IsHDModel = 1;
+	pdx->m_MaxHWVideoBufferSize = MAX_MM_VIDEO_SIZE;
+	pdx->m_nMaxChl  = 4;
+	pdx->m_bBufferAllocate = FALSE;
+	pdx->mMain_tsk = NULL;
+	pdx->m_dwAudioPTKSize = MAX_DMA_AUDIO_PK_SIZE; //128*16*4;
+	pdx->m_bStartRun = 0;
+	pdx->m_PciDeviceLost =0;
+
+	WRITE_REGISTER_ULONG(pdx,CVBS_IN_BASE,0x0);
+	//ssleep(100);
+	WRITE_REGISTER_ULONG(pdx,CVBS_IN_BASE,0x10);
+	//ssleep(500);
+	//-------
+	SetHardWareInfo(pdx);
+	printk("************[HW]-[VIDV]=[%d]-[%d]-[%d] ************\n",  pdx->m_Device_Version, pdx->m_Device_SubVersion,pdx->m_Device_PortID );
 	return ret;
 
 }
@@ -5562,210 +5558,210 @@ static int hws_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 	gdev = alloc_dev_instance(pdev);
 	//sys_dvrs_hw_pdx = gdev;
 	gdev->pdev = pdev;
-	
+
 	gdev->dwDeviceID = gdev->pdev->device;
 	gdev->dwVendorID = gdev->pdev->vendor;
-	printk("MV360: Device =%X VID =%X\n",gdev->dwDeviceID,gdev->dwVendorID); 
+	printk("MV360: Device =%X VID =%X\n",gdev->dwDeviceID,gdev->dwVendorID);
 	err = pci_enable_device(pdev);
 	if (err) {
 		dev_err(&pdev->dev, "%s: pci_enable_device failed: %d\n",
 				__func__, err);
 		goto  err_alloc;
 	}
-	//printk("hws_probe  probe 2\n"); 
+	//printk("hws_probe  probe 2\n");
 	#if 0
 	if (pci_request_regions(pdev, "longtimetech"))
 		goto err_disable;
 	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) {
 		printk(KERN_EMERG "fail pci_set_dma_mask\n");
-       	goto err_release;
-    }
-	#endif 
-	
-	//printk("hws_probe  probe 3\n"); 
-	enable_pcie_relaxed_ordering(pdev);
-	//printk("hws_probe  probe 4\n"); 
-	pci_set_master(pdev);
-	//------------------------------------	
-	ret = probe_scan_for_msi(gdev, pdev);	
-	if (ret < 0)		
-	  goto disable_msi;	
+		goto err_release;
+}
+#endif
+
+//printk("hws_probe  probe 3\n");
+enable_pcie_relaxed_ordering(pdev);
+//printk("hws_probe  probe 4\n");
+pci_set_master(pdev);
+//------------------------------------
+ret = probe_scan_for_msi(gdev, pdev);
+if (ret < 0)
+	goto disable_msi;
 	//------------------------
-	//printk("hws_probe  probe 5\n"); 
+	//printk("hws_probe  probe 5\n");
 	/* known root complex's max read request sizes */
-#ifdef CONFIG_ARCH_TI816X
+	#ifdef CONFIG_ARCH_TI816X
 	//dbg_init("TI816X RC detected: limit MaxReadReq size to 128 bytes.\n");
 	pcie_set_readrq(pdev, 128);
 #endif
- #if 0
-	gdev->info.mem[0].addr = pci_resource_start(pdev, 0);
-	if (!gdev->info.mem[0].addr)
-		goto err_release;
-  #endif 
-  //printk("hws_probe  ioremap_nocache\n"); 
-  #if 0
-	gdev->info.mem[0].internal_addr = ioremap_nocache(pci_resource_start(pdev, 0), 
-		pci_resource_len(pdev, 0));
-  #else
-        //gdev->info.mem[0].internal_addr = ioremap_cache(pci_resource_start(pdev, 0), 
-  		//gdev->info.mem[0].internal_addr = ioremap_nocache(pci_resource_start(pdev, 0), 
-		//pci_resource_len(pdev, 0));
+#if 0
+gdev->info.mem[0].addr = pci_resource_start(pdev, 0);
+if (!gdev->info.mem[0].addr)
+	goto err_release;
+	#endif
+	//printk("hws_probe  ioremap_nocache\n");
+	#if 0
+	gdev->info.mem[0].internal_addr = ioremap_nocache(pci_resource_start(pdev, 0),
+	pci_resource_len(pdev, 0));
+#else
+//gdev->info.mem[0].internal_addr = ioremap_cache(pci_resource_start(pdev, 0),
+//gdev->info.mem[0].internal_addr = ioremap_nocache(pci_resource_start(pdev, 0),
+//pci_resource_len(pdev, 0));
 
-		gdev->info.mem[0].internal_addr = ioremap(pci_resource_start(pdev, 0), 
-		pci_resource_len(pdev, 0));
-  
-  #endif
-  	gdev->wq=NULL;
-	gdev->auwq=NULL;
-	gdev->map_bar0_addr = (u32 *)gdev->info.mem[0].internal_addr;
+gdev->info.mem[0].internal_addr = ioremap(pci_resource_start(pdev, 0),
+										  pci_resource_len(pdev, 0));
 
-	if (!gdev->info.mem[0].internal_addr)
-		goto err_release;
+#endif
+gdev->wq=NULL;
+gdev->auwq=NULL;
+gdev->map_bar0_addr = (u32 *)gdev->info.mem[0].internal_addr;
+
+if (!gdev->info.mem[0].internal_addr)
+	goto err_release;
 
 	gdev->info.mem[0].size = pci_resource_len(pdev, 0);
-	gdev->info.mem[0].memtype = UIO_MEM_PHYS;
+gdev->info.mem[0].memtype = UIO_MEM_PHYS;
 
-  
-	
-	//printk(" pdev->irq = %d \n",pdev->irq); 
-	ret = irq_setup(gdev, pdev);
-	if (ret)
-		goto err_register;
 
-	//printk("pci_set_drvdata \n"); 
+
+//printk(" pdev->irq = %d \n",pdev->irq);
+ret = irq_setup(gdev, pdev);
+if (ret)
+	goto err_register;
+
+	//printk("pci_set_drvdata \n");
 	pci_set_drvdata(pdev, gdev);
-	//enable irq
-	//enable_irq(gdev->info.irq);
-	//------
-	ReadChipId(gdev);
-		//---------------
-		for (i = 0; i<MAX_VID_CHANNELS; i++)
-		{
-			//gdev->m_nVideoIndex[i] =0;
-			gdev->m_nRDVideoIndex[i] =0;
-			gdev->m_bVCapIntDone[i] =0;
-			gdev->m_nVideoBusy[i] = 0;
-			gdev->m_bChangeVideoSize[i] =0;
-			gdev->m_nVideoBufferIndex[i] = 0;
-			gdev->m_nVideoHalfDone[i] =0;
-			gdev->m_pVideoEvent[i] = 0;
-			SetVideoFormteSize(gdev,i,1920,1080);
-			gdev->m_bVCapStarted[i] = 0;
-			gdev->m_bVideoStop[i]=0;
-			gdev->video_data[i] =0;
-			//----------------------
+//enable irq
+//enable_irq(gdev->info.irq);
+//------
+ReadChipId(gdev);
+//---------------
+for (i = 0; i<MAX_VID_CHANNELS; i++)
+{
+	//gdev->m_nVideoIndex[i] =0;
+	gdev->m_nRDVideoIndex[i] =0;
+	gdev->m_bVCapIntDone[i] =0;
+	gdev->m_nVideoBusy[i] = 0;
+	gdev->m_bChangeVideoSize[i] =0;
+	gdev->m_nVideoBufferIndex[i] = 0;
+	gdev->m_nVideoHalfDone[i] =0;
+	gdev->m_pVideoEvent[i] = 0;
+	SetVideoFormteSize(gdev,i,1920,1080);
+	gdev->m_bVCapStarted[i] = 0;
+	gdev->m_bVideoStop[i]=0;
+	gdev->video_data[i] =0;
+	//----------------------
 
-			gdev->m_pbyVideoBuffer[i] = NULL;
-			gdev->m_VideoInfo[i].dwisRuning= 0;
-			gdev->m_VideoInfo[i].m_nVideoIndex= 0;
-			gdev->m_VideoInfo[i].m_pVideoScalerBuf = NULL;
-			for (j = 0; j<MAX_VIDEO_QUEUE; j++)
-			{
-				gdev->m_pVCAPStatus[i][j].byLock = MEM_UNLOCK;
-				gdev->m_pVCAPStatus[i][j].byField = 0;
-				gdev->m_pVCAPStatus[i][j].byPath = 2;
-				gdev->m_pVCAPStatus[i][j].dwWidth = 1920 ;
-				gdev->m_pVCAPStatus[i][j].dwHeight = 1080;
-				gdev->m_pVCAPStatus[i][j].dwinterlace =0;
-				//gdev->m_pVideoData[i][j] = NULL;
-				//------------------
-				gdev->m_VideoInfo[i].m_pVideoBufData[j] = NULL;
-				gdev->m_VideoInfo[i].m_pVideoBufData1[j] = NULL;
-				gdev->m_VideoInfo[i].m_pVideoBufData2[j] = NULL;
-				gdev->m_VideoInfo[i].m_pVideoBufData3[j] = NULL;
-				gdev->m_VideoInfo[i].pStatusInfo[j].byLock= MEM_UNLOCK;
-				//----------------
-			}
-			//--------audio
-			gdev->m_pAudioEvent[i] = 0;
-			gdev->m_bACapStarted[i]=0;
-			gdev->m_bAudioRun[i] = 0;
-			gdev->m_bAudioStop[i] = 0;
-			gdev->m_nAudioBusy[i] = 0;
-			gdev->m_nRDAudioIndex[i] =0;
-			//sema_init(&gdev->sem_video[i],1);  
-			//spin_lock_init(&gdev->video_lock[i]); 
-			spin_lock_init(&gdev->videoslock[i]);
-			spin_lock_init(&gdev->audiolock[i]);
-			//mutex_init(&gdev->video_mutex[i]); 
-			//init_waitqueue_head(&gdev->wq_video[i]);  
-			//gdev->wq_flag[i]=0;
-			gdev->m_AudioInfo[i].dwisRuning =0;
-			gdev->m_AudioInfo[i].m_nAudioIndex =0;
-			gdev->audio[i].resampled_buf =NULL;
-			for(j=0; j<MAX_AUDIO_QUEUE;j++)
-			{
-				gdev->m_AudioInfo[i].m_pAudioBufData[j] =NULL;
-				gdev->m_AudioInfo[i].pStatusInfo[j].byLock = MEM_UNLOCK;
-				gdev->m_AudioInfo[i].m_pAudioBufData[j] = NULL;
-			}
-			//gdev->video[i].v4l2_dev = NULL;
-		}
-		//---------------------
-	 	 tasklet_init(&gdev->dpc_video_tasklet[0],DpcForIsr_Video0,(unsigned long)gdev);
-		 //tasklet_init(&gdev->dpc_video_tasklet[1],DpcForIsr_Video1,(unsigned long)gdev);
-		 //tasklet_init(&gdev->dpc_video_tasklet[2],DpcForIsr_Video2,(unsigned long)gdev);
-		 //tasklet_init(&gdev->dpc_video_tasklet[3],DpcForIsr_Video3,(unsigned long)gdev);
+	gdev->m_pbyVideoBuffer[i] = NULL;
+	gdev->m_VideoInfo[i].dwisRuning= 0;
+	gdev->m_VideoInfo[i].m_nVideoIndex= 0;
+	gdev->m_VideoInfo[i].m_pVideoScalerBuf = NULL;
+	for (j = 0; j<MAX_VIDEO_QUEUE; j++)
+	{
+		gdev->m_pVCAPStatus[i][j].byLock = MEM_UNLOCK;
+		gdev->m_pVCAPStatus[i][j].byField = 0;
+		gdev->m_pVCAPStatus[i][j].byPath = 2;
+		gdev->m_pVCAPStatus[i][j].dwWidth = 1920 ;
+		gdev->m_pVCAPStatus[i][j].dwHeight = 1080;
+		gdev->m_pVCAPStatus[i][j].dwinterlace =0;
+		//gdev->m_pVideoData[i][j] = NULL;
+		//------------------
+		gdev->m_VideoInfo[i].m_pVideoBufData[j] = NULL;
+		gdev->m_VideoInfo[i].m_pVideoBufData1[j] = NULL;
+		gdev->m_VideoInfo[i].m_pVideoBufData2[j] = NULL;
+		gdev->m_VideoInfo[i].m_pVideoBufData3[j] = NULL;
+		gdev->m_VideoInfo[i].pStatusInfo[j].byLock= MEM_UNLOCK;
+		//----------------
+	}
+	//--------audio
+	gdev->m_pAudioEvent[i] = 0;
+	gdev->m_bACapStarted[i]=0;
+	gdev->m_bAudioRun[i] = 0;
+	gdev->m_bAudioStop[i] = 0;
+	gdev->m_nAudioBusy[i] = 0;
+	gdev->m_nRDAudioIndex[i] =0;
+	//sema_init(&gdev->sem_video[i],1);
+	//spin_lock_init(&gdev->video_lock[i]);
+	spin_lock_init(&gdev->videoslock[i]);
+	spin_lock_init(&gdev->audiolock[i]);
+	//mutex_init(&gdev->video_mutex[i]);
+	//init_waitqueue_head(&gdev->wq_video[i]);
+	//gdev->wq_flag[i]=0;
+	gdev->m_AudioInfo[i].dwisRuning =0;
+	gdev->m_AudioInfo[i].m_nAudioIndex =0;
+	gdev->audio[i].resampled_buf =NULL;
+	for(j=0; j<MAX_AUDIO_QUEUE;j++)
+	{
+		gdev->m_AudioInfo[i].m_pAudioBufData[j] =NULL;
+		gdev->m_AudioInfo[i].pStatusInfo[j].byLock = MEM_UNLOCK;
+		gdev->m_AudioInfo[i].m_pAudioBufData[j] = NULL;
+	}
+	//gdev->video[i].v4l2_dev = NULL;
+}
+//---------------------
+tasklet_init(&gdev->dpc_video_tasklet[0],DpcForIsr_Video0,(unsigned long)gdev);
+//tasklet_init(&gdev->dpc_video_tasklet[1],DpcForIsr_Video1,(unsigned long)gdev);
+//tasklet_init(&gdev->dpc_video_tasklet[2],DpcForIsr_Video2,(unsigned long)gdev);
+//tasklet_init(&gdev->dpc_video_tasklet[3],DpcForIsr_Video3,(unsigned long)gdev);
 
-		 tasklet_init(&gdev->dpc_audio_tasklet[0],DpcForIsr_Audio0,(unsigned long)gdev);
-		 //tasklet_init(&gdev->dpc_audio_tasklet[1],DpcForIsr_Audio1,(unsigned long)gdev);
-		 //tasklet_init(&gdev->dpc_audio_tasklet[2],DpcForIsr_Audio2,(unsigned long)gdev);
-		 //tasklet_init(&gdev->dpc_audio_tasklet[3],DpcForIsr_Audio3,(unsigned long)gdev);
-		 
-		//----------------------
-	 	ret = DmaMemAllocPool(gdev);
-		 if(ret !=0)
-	  	{
-			goto err_mem_alloc;
-	   }
-	   //SetDMAAddress(gdev);
-	   InitVideoSys(gdev,0);
-	   StartKSThread(gdev);
-	 // just test
-	 //StartVideoCapture(gdev,0);
-	//-------------------
-	//printk("hws_probe probe exit \n"); 
-	//--------------------------------------
-	//--------------------
-	hws_adapters_init(gdev);
-	gdev->wq =   create_singlethread_workqueue("hwsuhdx1");
-	gdev->auwq = create_singlethread_workqueue("hwsuhdx1-audio");
-	//----------------
-	if( hws_video_register(gdev) )
+tasklet_init(&gdev->dpc_audio_tasklet[0],DpcForIsr_Audio0,(unsigned long)gdev);
+//tasklet_init(&gdev->dpc_audio_tasklet[1],DpcForIsr_Audio1,(unsigned long)gdev);
+//tasklet_init(&gdev->dpc_audio_tasklet[2],DpcForIsr_Audio2,(unsigned long)gdev);
+//tasklet_init(&gdev->dpc_audio_tasklet[3],DpcForIsr_Audio3,(unsigned long)gdev);
+
+//----------------------
+ret = DmaMemAllocPool(gdev);
+if(ret !=0)
+{
+	goto err_mem_alloc;
+}
+//SetDMAAddress(gdev);
+InitVideoSys(gdev,0);
+StartKSThread(gdev);
+// just test
+//StartVideoCapture(gdev,0);
+//-------------------
+//printk("hws_probe probe exit \n");
+//--------------------------------------
+//--------------------
+hws_adapters_init(gdev);
+gdev->wq =   create_singlethread_workqueue("hwsuhdx1");
+gdev->auwq = create_singlethread_workqueue("hwsuhdx1-audio");
+//----------------
+if( hws_video_register(gdev) )
+	goto err_mem_alloc;
+	#if 1
+	if(hws_audio_register(gdev))
 		goto err_mem_alloc;
-#if 1
-		if(hws_audio_register(gdev))
-		goto err_mem_alloc;
-#endif	
+	#endif
 	return 0;
 err_mem_alloc:
-	
-		 gdev->m_bBufferAllocate = TRUE;
-		 DmaMemFreePool(gdev);
-		 gdev->m_bBufferAllocate = FALSE;
+
+gdev->m_bBufferAllocate = TRUE;
+DmaMemFreePool(gdev);
+gdev->m_bBufferAllocate = FALSE;
 err_register:
-		iounmap(gdev->info.mem[0].internal_addr);
-		irq_teardown(gdev);
-		kfree(gdev);
-disable_msi:	
-		if (gdev->msix_enabled) 
-		{		
-		pci_disable_msix(pdev); 	
-		gdev->msix_enabled = 0; 
-		}	
-		else if (gdev->msi_enabled)
-		{
-			pci_disable_msi(pdev);		
-			gdev->msi_enabled = 0;	
-		}
+iounmap(gdev->info.mem[0].internal_addr);
+irq_teardown(gdev);
+kfree(gdev);
+disable_msi:
+if (gdev->msix_enabled)
+{
+	pci_disable_msix(pdev);
+	gdev->msix_enabled = 0;
+}
+else if (gdev->msi_enabled)
+{
+	pci_disable_msi(pdev);
+	gdev->msi_enabled = 0;
+}
 err_release:
-		pci_release_regions(pdev);
-		pci_disable_device(pdev);
-		return err;
+pci_release_regions(pdev);
+pci_disable_device(pdev);
+return err;
 err_alloc:
-			kfree(gdev);
-			
-	return	-1;
+kfree(gdev);
+
+return	-1;
 
 
 }
@@ -5794,6 +5790,6 @@ module_init(pcie_hws_init);
 module_exit(pcie_hws_exit);
 
 MODULE_DESCRIPTION("HWS driver");
-MODULE_AUTHOR("Sales <sales@avmatrix.com>");
+MODULE_AUTHOR("Alex Liu <alex.liu@longtimetech.com>");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
