@@ -1067,8 +1067,8 @@ static const struct v4l2_ioctl_ops hws_ioctl_fops = {
 	.vidioc_g_input = hws_vidioc_g_input,
 	.vidioc_s_input = hws_vidioc_s_input,
 	//.vidioc_log_status = vidioc_log_status,
-	.vidioc_subscribe_event = v4l2_ctrl_subscribe_event,
-	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
+	//.vidioc_subscribe_event = v4l2_ctrl_subscribe_event,
+	//.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
 	.vidioc_g_parm = hws_vidioc_g_parm,
 	.vidioc_s_parm = hws_vidioc_s_parm,
 };
