@@ -589,13 +589,6 @@ static int vidioc_log_status(struct file *file, void *priv)
 	return 0;
 }
 
-static ssize_t hws_read(struct file *file,char *buf,size_t count, loff_t *ppos)
-{
-	//printk( "%s()\n", __func__);
-	return -1;
-
-}
-
 static int hws_open(struct file *file)
 {
 	struct hws_video *videodev = video_drvdata(file);
@@ -1035,7 +1028,7 @@ static const struct v4l2_file_operations hws_fops = {
 	.owner		= THIS_MODULE,
 	.open		= hws_open,//v4l2_fh_open,
 	.release	= hws_release,//vb2_fop_release,
-	.read		= hws_read,//vb2_fop_read,
+	.read		= vb2_fop_read,
 	.poll		= vb2_fop_poll,
 	.unlocked_ioctl	= video_ioctl2,
 	.mmap           = vb2_fop_mmap,
