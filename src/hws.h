@@ -293,6 +293,21 @@ struct hws_dmabuf{
 	dma_addr_t				dma;	
 };
 
+
+
+/*
+ * Multi-consumer video streaming context.
+ * One ctx per open() file handle, each owns an independent vb2_queue.
+ */
+struct hws_vfh_ctx {
+    struct v4l2_fh      fh;
+    struct vb2_queue    vbq;
+    struct list_head    buf_queue;   /* queued hwsvideo_buffer for this fh */
+    spinlock_t          qlock;       /* protects buf_queue */
+    bool                streaming;
+    struct hws_video   *video;
+    struct list_head    node;        /* link into video->consumers */
+};
 struct hws_video{
 	struct hws_pcie_dev		*dev;
 	struct v4l2_device		v4l2_dev;
@@ -304,6 +319,11 @@ struct hws_video{
 	unsigned				seqnr;
 	struct mutex			video_lock;
 	struct mutex			queue_lock;
+	/* B1: multi-consumer */
+	spinlock_t			consumers_lock;
+	struct mutex			ioctl_lock;
+	struct list_head		consumers;
+	atomic_t			engine_users;
 	spinlock_t				slock;
 	v4l2_std_id				std;  //V4L2_STD_NTSC_M
 	u32						pixfmt; //V4L2_PIX_FMT_YUYV(fourcc)
