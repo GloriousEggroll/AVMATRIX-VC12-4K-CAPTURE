@@ -406,6 +406,7 @@ struct hws_pcie_dev {
 	
 	struct task_struct *mMain_tsk; 
 	int m_curr_No_Video[MAX_VID_CHANNELS];
+	int m_VideoInHWmode[MAX_VID_CHANNELS];
 	//------------------
 	dma_addr_t   		m_pbyAudio_phys[MAX_VID_CHANNELS] ;
 	uint8_t     *m_pbyAudioBuffer[MAX_VID_CHANNELS];
