@@ -72,6 +72,7 @@ static	void All_VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,in
 //MAKE_ENTRY(0x1F33, 0x9001, 0x1F33, 0x0008, NULL),
 static const struct pci_device_id hws_pci_table[] = {
 	MAKE_ENTRY(0x8888, 0x8581, 0x8888, 0x0007, NULL),
+	MAKE_ENTRY(0x8888, 0x85A1, 0x8888, 0x0007, NULL),
 	MAKE_ENTRY(0x1F33, 0x8581, 0x8888, 0x0007, NULL),
 	MAKE_ENTRY(0x8888, 0x8591, 0x8888, 0x0007, NULL),
 	{ }
@@ -825,6 +826,7 @@ static struct v4l2_query_ext_ctrl *find_ext_ctrlByIndex(int index)
     return NULL;
 }
 //-------------------------
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
 static int hws_vidioc_g_ctrl(struct file *file, void *fh,struct v4l2_control *a)//
 {
 	struct hws_video *videodev = video_drvdata(file);
@@ -881,7 +883,7 @@ static int hws_vidioc_g_ctrl(struct file *file, void *fh,struct v4l2_control *a)
 	return ret;
 
 }
-
+#else 
 static int hws_v4l2_g_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_controls  *cs)//
 {
 	struct hws_video *videodev = video_drvdata(file);
@@ -910,7 +912,7 @@ static int hws_v4l2_g_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
                 c->value = videodev->m_Curr_Hue;
                 break;
             default:
-                // éè??′í?ó?÷òy2￠·μ??
+                // 设置错误索引并返回
                 cs->error_idx = i;
                 printk("Unsupported control id: 0x%x\n", c->id);
                 return -EINVAL;
@@ -919,8 +921,8 @@ static int hws_v4l2_g_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
     return 0;
 
 }
-
-
+#endif 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
 static int hws_vidioc_s_ctrl(struct file *file, void *fh,struct v4l2_control *a)
 {
 	struct hws_video *videodev = video_drvdata(file);
@@ -979,6 +981,7 @@ static int hws_vidioc_s_ctrl(struct file *file, void *fh,struct v4l2_control *a)
 	return ret;
 
 }
+#else 
 static int hws_v4l2_s_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_controls  *cs)
 {
 	struct hws_video *videodev = video_drvdata(file);
@@ -1001,7 +1004,7 @@ static int hws_v4l2_s_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
             return -EINVAL;
         }
         
-        // ?ì2é?μ·??§
+        // 检查值范围
         if (c->value < found_ctrl->minimum || c->value > found_ctrl->maximum) {
             cs->error_idx = i;
             printk("Value out of range for control 0x%x (%lld-%lld)\n",
@@ -1009,7 +1012,7 @@ static int hws_v4l2_s_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
             return -ERANGE;
         }
         
-        // ?ù?YIDéè???μ
+        // 根据ID设置值
         switch (c->id) {
             case V4L2_CID_BRIGHTNESS:
                 videodev->m_Curr_Brightness = c->value;
@@ -1031,11 +1034,12 @@ static int hws_v4l2_s_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
     return 0;
 
 }
-
+#endif
 void mem_model_memset(void *s,int c,unsigned int n)
 {
 	memset(s,c,n);
 }
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
 static int hws_vidioc_queryctrl(struct file *file, void *fh,struct v4l2_queryctrl *a)
 {
 	struct hws_video *videodev = video_drvdata(file);
@@ -1100,6 +1104,7 @@ static int hws_vidioc_queryctrl(struct file *file, void *fh,struct v4l2_queryctr
 	return ret;
 
 }
+#else
 static int hws_v4l2_query_ext_ctrl(struct file *file, void *fh,struct v4l2_query_ext_ctrl  *qc)
 {
 	struct hws_video *videodev = video_drvdata(file);
@@ -1124,7 +1129,7 @@ static int hws_v4l2_query_ext_ctrl(struct file *file, void *fh,struct v4l2_query
             found_ctrl = find_ext_ctrlByIndex(videodev->queryIndex);
             if (found_ctrl) {
                 memcpy(qc, found_ctrl, sizeof(*qc));
-                // ??3y NEXT_CTRL ±ê??
+                // 清除 NEXT_CTRL 标志
                 qc->id = found_ctrl->id; 
                 ret = 0;
             }
@@ -1136,7 +1141,7 @@ static int hws_v4l2_query_ext_ctrl(struct file *file, void *fh,struct v4l2_query
                 qc->id = found_ctrl->id;
                 ret = 0;
             } else {
-                // ·μ??????????±íê??áê?
+                // 返回空控制项表示结束
                 memset(qc, 0, sizeof(*qc));
                 ret = -EINVAL;
             }
@@ -1154,7 +1159,7 @@ static int hws_v4l2_query_ext_ctrl(struct file *file, void *fh,struct v4l2_query
     return ret;
 
 }
-
+#endif 
 #if 0
 static int hws_vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
