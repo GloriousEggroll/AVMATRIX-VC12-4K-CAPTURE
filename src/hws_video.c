@@ -640,7 +640,7 @@ static int hws_open(struct file *file)
     /* v4l2 file-handle */
     v4l2_fh_init(&ctx->fh, &videodev->vdev);
     file->private_data = &ctx->fh;
-    v4l2_fh_add(&ctx->fh);
+    v4l2_fh_add(&ctx->fh, file);
 
     /* per-file vb2 queue */
     q = &ctx->vbq;
@@ -658,7 +658,7 @@ static int hws_open(struct file *file)
 
     ret = vb2_queue_init(q);
     if (ret) {
-        v4l2_fh_del(&ctx->fh);
+        v4l2_fh_del(&ctx->fh, file);
         v4l2_fh_exit(&ctx->fh);
         kfree(ctx);
         file->private_data = NULL;
@@ -703,7 +703,7 @@ static int hws_release(struct file *file)
     vb2_queue_release(&ctx->vbq);
 
     /* v4l2 fh cleanup */
-    v4l2_fh_del(&ctx->fh);
+    v4l2_fh_del(&ctx->fh, file);
     v4l2_fh_exit(&ctx->fh);
     file->private_data = NULL;
 
