@@ -73,6 +73,7 @@ static	void All_VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,in
 static const struct pci_device_id hws_pci_table[] = {
 	MAKE_ENTRY(0x8888, 0x8581, 0x8888, 0x0007, NULL),
 	MAKE_ENTRY(0x1F33, 0x8581, 0x8888, 0x0007, NULL),
+	MAKE_ENTRY(0x8888, 0x8591, 0x8888, 0x0007, NULL),
 	{ }
 };
 //------------------
