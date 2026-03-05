@@ -972,7 +972,6 @@ static int hws_v4l2_g_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
 		return -EINVAL;
 	}
 	//printk( "%s(ch-%d)-%d\n", __func__,videodev->index,cs->count);
-	return  -ERANGE;
     for (i = 0; i < cs->count; i++) {
         struct v4l2_ext_control *c = &cs->controls[i];
         
@@ -990,7 +989,7 @@ static int hws_v4l2_g_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
                 c->value = videodev->m_Curr_Hue;
                 break;
             default:
-                // ÉèÖÃ´íÎóË÷Òý²¢·µ»Ø
+                // ï¿½ï¿½ï¿½Ã´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
                 cs->error_idx = i;
                 printk("Unsupported control id: 0x%x\n", c->id);
                 return -EINVAL;
@@ -1069,8 +1068,6 @@ static int hws_v4l2_s_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
 		printk( "%s(ch-%d)cs=NULL\n", __func__,videodev->index);
 		return -EINVAL;
 	}
-	printk( "%s(ch-%d)-%d\n", __func__,videodev->index,cs->count);
-	return  -ERANGE;
     for (i = 0; i < cs->count; i++) {
         struct v4l2_ext_control *c = &cs->controls[i];
         struct v4l2_query_ext_ctrl *found_ctrl;
@@ -1082,7 +1079,7 @@ static int hws_v4l2_s_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
             return -EINVAL;
         }
         
-        // ¼ì²éÖµ·¶Î§
+        // ï¿½ï¿½ï¿½Öµï¿½ï¿½Î§
         if (c->value < found_ctrl->minimum || c->value > found_ctrl->maximum) {
             cs->error_idx = i;
             printk("Value out of range for control 0x%x (%lld-%lld)\n",
@@ -1090,7 +1087,7 @@ static int hws_v4l2_s_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_cont
             return -ERANGE;
         }
         
-        // ¸ù¾ÝIDÉèÖÃÖµ
+        // ï¿½ï¿½ï¿½ï¿½IDï¿½ï¿½ï¿½ï¿½Öµ
         switch (c->id) {
             case V4L2_CID_BRIGHTNESS:
                 videodev->m_Curr_Brightness = c->value;
@@ -1195,19 +1192,16 @@ static int hws_v4l2_query_ext_ctrl(struct file *file, void *fh,struct v4l2_query
 		printk( "%s(ch-%d)cs=NULL\n", __func__,videodev->index);
 		return ret;
 	}
-	printk( "%s(ch-%d)\n", __func__,videodev->index);
 	
     id = qc->id & (~V4L2_CTRL_FLAG_NEXT_CTRL);
     mask_id = qc->id & V4L2_CTRL_FLAG_NEXT_CTRL;
-	printk( "id= %d mask_id=%dn",id ,mask_id);
-	return ret;
     if (mask_id == V4L2_CTRL_FLAG_NEXT_CTRL) {
         if (id == 0) {
             videodev->queryIndex = 0;
             found_ctrl = find_ext_ctrlByIndex(videodev->queryIndex);
             if (found_ctrl) {
                 memcpy(qc, found_ctrl, sizeof(*qc));
-                // Çå³ý NEXT_CTRL ±êÖ¾
+                // ï¿½ï¿½ï¿½ NEXT_CTRL ï¿½ï¿½Ö¾
                 qc->id = found_ctrl->id; 
                 ret = 0;
             }
@@ -1219,13 +1213,13 @@ static int hws_v4l2_query_ext_ctrl(struct file *file, void *fh,struct v4l2_query
                 qc->id = found_ctrl->id;
                 ret = 0;
             } else {
-                // ·µ»Ø¿Õ¿ØÖÆÏî±íÊ¾½áÊø
+                // ï¿½ï¿½ï¿½Ø¿Õ¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½
                 memset(qc, 0, sizeof(*qc));
                 ret = -EINVAL;
             }
         }
     } else {
-        found_ctrl = find_ext_ctrlByIndex(id);
+        found_ctrl = find_ext_ctrl(id);
         if (found_ctrl) {
             memcpy(qc, found_ctrl, sizeof(*qc));
             ret = 0;
