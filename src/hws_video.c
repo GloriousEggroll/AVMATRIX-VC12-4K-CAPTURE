@@ -1621,8 +1621,10 @@ static const struct vb2_ops hwspcie_video_qops = {
 	.buf_prepare  = hws_buffer_prepare,
 	.buf_finish = hws_buffer_finish,
 	.buf_queue    = hws_buffer_queue,
+	#if (LINUX_VERSION_CODE < KERNEL_VERSION(7,0,0))
 	.wait_prepare = vb2_ops_wait_prepare,
 	.wait_finish = vb2_ops_wait_finish,
+	#endif
 	.start_streaming = hws_start_streaming,
 	.stop_streaming = hws_stop_streaming,
 };
@@ -1732,8 +1734,10 @@ static const struct vb2_ops hwspcie_video_multi_qops = {
     .buf_prepare    = hws_buffer_prepare_multi,
     .buf_finish     = hws_buffer_finish,
     .buf_queue      = hws_buffer_queue_multi,
+    #if (LINUX_VERSION_CODE < KERNEL_VERSION(7,0,0))
     .wait_prepare   = vb2_ops_wait_prepare,
     .wait_finish    = vb2_ops_wait_finish,
+    #endif
     .start_streaming= hws_start_streaming_multi,
     .stop_streaming = hws_stop_streaming_multi,
 };
