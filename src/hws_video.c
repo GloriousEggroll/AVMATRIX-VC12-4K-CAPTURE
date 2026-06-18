@@ -657,7 +657,8 @@ static int hws_open(struct file *file)
     q->ops = &hwspcie_video_multi_qops;
     q->mem_ops = &vb2_vmalloc_memops;
     q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-    q->lock = NULL; /* we use our own locks */
+    //q->lock = NULL; /* we use our own locks */
+	q->lock = &videodev->queue_lock; /* we use our own locks "NEEDED FOR 7.0+" */
     q->dev = &pdx->pdev->dev;
 
     ret = vb2_queue_init(q);
