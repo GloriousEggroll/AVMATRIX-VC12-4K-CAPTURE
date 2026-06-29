@@ -304,6 +304,7 @@ struct hws_vfh_ctx {
     struct vb2_queue    vbq;
     struct list_head    buf_queue;   /* queued hwsvideo_buffer for this fh */
     spinlock_t          qlock;       /* protects buf_queue */
+    struct mutex        qmutex;      /* vb2 q->lock on kernels >= 7.0 (wait_prepare/finish removed) */
     bool                streaming;
     struct hws_video   *video;
     struct list_head    node;        /* link into video->consumers */

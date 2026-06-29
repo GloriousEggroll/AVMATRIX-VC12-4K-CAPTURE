@@ -635,6 +635,7 @@ static int hws_open(struct file *file)
     ctx->video = videodev;
     INIT_LIST_HEAD(&ctx->buf_queue);
     spin_lock_init(&ctx->qlock);
+    mutex_init(&ctx->qmutex);
     ctx->streaming = false;
 
     /* v4l2 file-handle */
@@ -657,7 +658,13 @@ static int hws_open(struct file *file)
     q->ops = &hwspcie_video_multi_qops;
     q->mem_ops = &vb2_vmalloc_memops;
     q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-    q->lock = NULL; /* we use our own locks */
+    #if (LINUX_VERSION_CODE < KERNEL_VERSION(7,0,0))
+    q->lock = NULL; /* pre-7.0: serialized via wait_prepare/wait_finish ops */
+    #else
+    /* 7.0 removed wait_prepare/wait_finish; vb2 now requires q->lock. The queue
+     * is per-open (per ctx), so a per-ctx mutex serializes only this fh. */
+    q->lock = &ctx->qmutex;
+    #endif
     q->dev = &pdx->pdev->dev;
 
     ret = vb2_queue_init(q);
