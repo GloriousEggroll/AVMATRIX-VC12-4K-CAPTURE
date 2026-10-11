@@ -3538,7 +3538,7 @@ void video_data_process(struct work_struct *p_work)
 		//spin_unlock_irqrestore(&pdx->videoslock[nCh], devflags);
 	}
 	//---------------------------
-	for (;;) {
+	for (int delivered = 0; delivered < 1; delivered++) {
         struct hws_vfh_ctx *ctx;
         struct hwsvideo_buffer *buf;
 
