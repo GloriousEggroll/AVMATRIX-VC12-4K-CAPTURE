@@ -22,7 +22,8 @@ sudo apt install linux-headers-$(uname -r)
 sudo apt install ./hws-uhdx1-capture-dkms_*ubuntu24.04_all.deb   # or *ubuntu26.04*
 ```
 
-Other distributions: `./dkms-install.sh` (needs `make`, `gcc`, `dkms` and kernel headers).
+Other distributions (Debian, Fedora, RHEL, openSUSE, Arch, Manjaro): see
+[build from source](doc/README.md#other-distributions-build-from-source).
 
 ## Use
 

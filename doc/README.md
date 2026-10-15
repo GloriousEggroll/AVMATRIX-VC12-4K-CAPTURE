@@ -17,6 +17,12 @@ Back to the [project README](../README.md).
 
 ## Hardware
 
+| Front | HDMI 2.0 in / loop-out |
+|---|---|
+| <img src="images/vc12-4k-front.jpg" alt="AVMATRIX VC12-4K" height="300"> | <img src="images/vc12-4k-ports.jpg" alt="VC12-4K bracket: HDMI in and out" height="300"> |
+
+<sub>Product photos © AVMATRIX, from avmatrix.com.</sub>
+
 | | |
 |---|---|
 | Card | AVMATRIX VC12-4K (OEM chip by Longtime Electronic / lt-link "HWS UHD") |
@@ -85,6 +91,54 @@ must be rebuilt after every kernel update (`sudo hws-repair.sh`).
 > Use either the `.deb` or the scripts, not both: they register the same DKMS module.
 
 Reboot if the installer reports that a previous version was still loaded.
+
+### Other distributions (build from source)
+
+The `.deb` is for Ubuntu, but the driver builds on any distribution with a C compiler and the headers of the
+running kernel. Tested in containers: Debian 12 (kernel 6.1), Fedora 44 (7.2), Arch Linux (7.2),
+openSUSE Tumbleweed (7.2) and Ubuntu 24.04 / 26.04 (6.8 / 7.0).
+
+**1. Build tools and kernel headers**
+
+| Distribution | Command |
+|---|---|
+| Debian / Ubuntu / Mint / Pop!_OS | `sudo apt install build-essential dkms linux-headers-$(uname -r)` |
+| Fedora | `sudo dnf install make gcc dkms kernel-devel-$(uname -r)` |
+| RHEL / Rocky / AlmaLinux | `sudo dnf install epel-release && sudo dnf install make gcc dkms kernel-devel-$(uname -r)` |
+| openSUSE | `sudo zypper install make gcc dkms kernel-default-devel` |
+| Arch Linux | `sudo pacman -S --needed base-devel dkms linux-headers` |
+| Manjaro | `sudo pacman -S --needed base-devel dkms linux$(uname -r \| cut -d. -f1,2 \| tr -d .)-headers` |
+
+Check that the headers match the running kernel: `ls /lib/modules/$(uname -r)/build` must exist (reboot first if a
+kernel update is pending).
+
+**2a. DKMS (recommended: rebuilt automatically on kernel updates)**
+
+```sh
+git clone https://github.com/GloriousEggroll/AVMATRIX-VC12-4K-CAPTURE
+cd AVMATRIX-VC12-4K-CAPTURE
+VER=$(. src/dkms.conf; echo $PACKAGE_VERSION)
+sudo cp -r src /usr/src/HwsUHDX1CaptureForLinux-$VER
+sudo dkms add -m HwsUHDX1CaptureForLinux -v $VER
+sudo dkms install -m HwsUHDX1CaptureForLinux -v $VER
+sudo modprobe HwsUHDX1Capture
+```
+
+Remove it with `sudo dkms remove -m HwsUHDX1CaptureForLinux -v $VER --all && sudo rm -rf /usr/src/HwsUHDX1CaptureForLinux-$VER`.
+(`./dkms-install.sh` does the same through the vendor scripts.)
+
+**2b. Plain `make` (no DKMS: rebuild after every kernel update)**
+
+```sh
+make -C src                                   # builds src/HwsUHDX1Capture.ko for the running kernel
+sudo insmod src/HwsUHDX1Capture.ko              # try it without installing
+sudo make -C src install && sudo depmod -a    # install for the running kernel
+sudo modprobe HwsUHDX1Capture
+```
+
+Build for another kernel with `make -C src KERNELDIR=/lib/modules/<version>/build`
+(on Fedora the headers also live in `/usr/src/kernels/<version>`).
+Modules built this way are not signed: with Secure Boot enabled use DKMS or sign the module yourself.
 
 ### Secure Boot
 
