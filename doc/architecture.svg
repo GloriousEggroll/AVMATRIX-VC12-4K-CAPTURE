@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="780" viewBox="0 0 1280 780" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+    <style>
+      .title { font-size: 26px; font-weight: 700; fill: #0f172a; }
+      .subtitle { font-size: 14px; fill: #475569; }
+      .lane { font-size: 13px; font-weight: 700; fill: #475569; letter-spacing: 1.5px; }
+      .h { font-size: 15px; font-weight: 700; fill: #0f172a; }
+      .t { font-size: 12.5px; fill: #334155; }
+      .m { font-size: 12px; fill: #334155; font-family: DejaVu Sans Mono, Menlo, Consolas, monospace; }
+      .edge { font-size: 12px; fill: #334155; font-weight: 600; }
+      .edge-g { font-size: 12px; fill: #15803d; font-weight: 600; }
+      .hw { fill: #fff7ed; stroke: #ea580c; stroke-width: 2; }
+      .kern { fill: #eef2ff; stroke: #4f46e5; stroke-width: 2; }
+      .user { fill: #ecfeff; stroke: #0891b2; stroke-width: 2; }
+      .build { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2; }
+      .line { stroke: #334155; stroke-width: 2; fill: none; }
+      .line-g { stroke: #15803d; stroke-width: 2; fill: none; stroke-dasharray: 7 5; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="780" fill="#ffffff"/>
+
+  <text x="30" y="44" class="title">AVMATRIX VC12-4K on Linux</text>
+  <text x="30" y="68" class="subtitle">HwsUHDX1Capture driver: capture path (top) and DKMS .deb build / install path (bottom)</text>
+
+  <!-- Lane 1: capture path -->
+  <rect x="16" y="88" width="1248" height="300" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="32" y="112" class="lane">CAPTURE PATH</text>
+
+  <rect x="32" y="130" width="170" height="120" rx="10" class="hw"/>
+  <text x="117" y="160" text-anchor="middle" class="h">HDMI source</text>
+  <text x="117" y="184" text-anchor="middle" class="t">PC, PS5, Xbox,</text>
+  <text x="117" y="202" text-anchor="middle" class="t">camera, switcher</text>
+  <text x="117" y="228" text-anchor="middle" class="t">up to 4K60</text>
+
+  <rect x="262" y="130" width="230" height="120" rx="10" class="hw"/>
+  <text x="377" y="160" text-anchor="middle" class="h">VC12-4K PCIe card</text>
+  <text x="377" y="184" text-anchor="middle" class="t">HDMI 2.0 in + loop-out</text>
+  <text x="377" y="202" text-anchor="middle" class="t">PCIe Gen2 x4</text>
+  <text x="377" y="226" text-anchor="middle" class="m">PCI 8888:8581 / 1f33:8581</text>
+
+  <rect x="282" y="300" width="190" height="62" rx="10" class="hw"/>
+  <text x="377" y="326" text-anchor="middle" class="h">Monitor / TV</text>
+  <text x="377" y="346" text-anchor="middle" class="t">zero-latency passthrough</text>
+
+  <rect x="552" y="130" width="210" height="120" rx="10" class="kern"/>
+  <text x="657" y="160" text-anchor="middle" class="h">Kernel module</text>
+  <text x="657" y="184" text-anchor="middle" class="m">HwsUHDX1Capture.ko</text>
+  <text x="657" y="206" text-anchor="middle" class="t">DMA, IRQ, format detect</text>
+  <text x="657" y="226" text-anchor="middle" class="t">built by DKMS</text>
+
+  <rect x="822" y="112" width="210" height="100" rx="10" class="kern"/>
+  <text x="927" y="138" text-anchor="middle" class="h">V4L2 video</text>
+  <text x="927" y="160" text-anchor="middle" class="m">/dev/videoN</text>
+  <text x="927" y="180" text-anchor="middle" class="t">"HUHDVideo N"</text>
+  <text x="927" y="199" text-anchor="middle" class="t">YUYV, up to 4096×2160</text>
+
+  <rect x="822" y="226" width="210" height="66" rx="10" class="kern"/>
+  <text x="927" y="252" text-anchor="middle" class="h">ALSA audio</text>
+  <text x="927" y="274" text-anchor="middle" class="m">"HUHDAudio N"</text>
+
+  <rect x="1082" y="130" width="166" height="150" rx="10" class="user"/>
+  <text x="1165" y="160" text-anchor="middle" class="h">Applications</text>
+  <text x="1165" y="186" text-anchor="middle" class="t">OBS Studio</text>
+  <text x="1165" y="206" text-anchor="middle" class="t">ffmpeg</text>
+  <text x="1165" y="226" text-anchor="middle" class="t">VLC / mpv</text>
+  <text x="1165" y="246" text-anchor="middle" class="t">xawtv, v4l2-ctl</text>
+
+  <path d="M202,190 L256,190" class="line" marker-end="url(#arrow)"/>
+  <text x="229" y="181" text-anchor="middle" class="edge">HDMI</text>
+  <path d="M377,250 L377,294" class="line" marker-end="url(#arrow)"/>
+  <text x="386" y="278" class="edge">loop-out</text>
+  <path d="M492,190 L546,190" class="line" marker-end="url(#arrow)"/>
+  <text x="519" y="181" text-anchor="middle" class="edge">PCIe</text>
+  <path d="M762,170 L816,160" class="line" marker-end="url(#arrow)"/>
+  <path d="M762,215 L816,256" class="line" marker-end="url(#arrow)"/>
+  <path d="M1032,160 L1076,180" class="line" marker-end="url(#arrow)"/>
+  <path d="M1032,256 L1076,236" class="line" marker-end="url(#arrow)"/>
+
+  <!-- Lane 2: build / install path -->
+  <rect x="16" y="420" width="1248" height="200" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="32" y="444" class="lane">BUILD &amp; INSTALL PATH</text>
+
+  <rect x="32" y="462" width="200" height="124" rx="10" class="build"/>
+  <text x="132" y="490" text-anchor="middle" class="h">Repository</text>
+  <text x="132" y="514" text-anchor="middle" class="m">src/*.c *.h</text>
+  <text x="132" y="534" text-anchor="middle" class="m">src/dkms.conf</text>
+  <text x="132" y="554" text-anchor="middle" class="m">packaging/debian/</text>
+
+  <rect x="282" y="462" width="220" height="124" rx="10" class="build"/>
+  <text x="392" y="490" text-anchor="middle" class="h">packaging/Dockerfile</text>
+  <text x="392" y="514" text-anchor="middle" class="t">ubuntu:24.04 / ubuntu:26.04</text>
+  <text x="392" y="534" text-anchor="middle" class="t">compile check vs headers</text>
+  <text x="392" y="558" text-anchor="middle" class="m">make deb</text>
+
+  <rect x="552" y="462" width="210" height="124" rx="10" class="build"/>
+  <text x="657" y="490" text-anchor="middle" class="h">.deb packages</text>
+  <text x="657" y="514" text-anchor="middle" class="m">hws-uhdx1-capture-dkms</text>
+  <text x="657" y="534" text-anchor="middle" class="t">GitHub Actions → Release</text>
+  <text x="657" y="554" text-anchor="middle" class="t">+ SHA256SUMS</text>
+
+  <rect x="812" y="462" width="200" height="124" rx="10" class="build"/>
+  <text x="912" y="490" text-anchor="middle" class="h">apt install</text>
+  <text x="912" y="514" text-anchor="middle" class="t">source → /usr/src/</text>
+  <text x="912" y="534" text-anchor="middle" class="t">postinst: dkms add</text>
+  <text x="912" y="554" text-anchor="middle" class="t">+ dkms install</text>
+
+  <rect x="1062" y="462" width="186" height="124" rx="10" class="build"/>
+  <text x="1155" y="490" text-anchor="middle" class="h">DKMS</text>
+  <text x="1155" y="514" text-anchor="middle" class="t">builds the module for</text>
+  <text x="1155" y="534" text-anchor="middle" class="t">every kernel with headers,</text>
+  <text x="1155" y="554" text-anchor="middle" class="t">again on kernel updates</text>
+
+  <path d="M232,524 L276,524" class="line" marker-end="url(#arrow)"/>
+  <path d="M502,524 L546,524" class="line" marker-end="url(#arrow)"/>
+  <path d="M762,524 L806,524" class="line" marker-end="url(#arrow)"/>
+  <path d="M1012,524 L1056,524" class="line" marker-end="url(#arrow)"/>
+
+  <path d="M1155,462 L1155,404 L657,404 L657,256" class="line-g" marker-end="url(#arrow-green)"/>
+  <text x="906" y="398" text-anchor="middle" class="edge-g">installs HwsUHDX1Capture.ko into /lib/modules/&lt;kernel&gt;/updates/dkms</text>
+
+  <!-- Legend -->
+  <rect x="32" y="650" width="16" height="16" rx="3" class="hw"/>
+  <text x="56" y="663" class="t">Hardware</text>
+  <rect x="152" y="650" width="16" height="16" rx="3" class="kern"/>
+  <text x="176" y="663" class="t">Kernel</text>
+  <rect x="256" y="650" width="16" height="16" rx="3" class="user"/>
+  <text x="280" y="663" class="t">User space</text>
+  <rect x="380" y="650" width="16" height="16" rx="3" class="build"/>
+  <text x="404" y="663" class="t">Packaging</text>
+  <path d="M500,658 L540,658" class="line"/>
+  <text x="550" y="663" class="t">data flow</text>
+  <path d="M640,658 L680,658" class="line-g"/>
+  <text x="690" y="663" class="t">install flow</text>
+
+  <text x="32" y="706" class="subtitle">Tested: Ubuntu 24.04 (kernel 6.8) and Ubuntu 26.04 (kernel 7.0). Driver also builds on kernels 6.13, 6.18 and 7.x.</text>
+  <text x="32" y="730" class="subtitle">github.com/GloriousEggroll/AVMATRIX-VC12-4K-CAPTURE · GPL</text>
+</svg>

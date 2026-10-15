@@ -4,6 +4,8 @@ The `HwsUHDX1Capture` driver (AVMATRIX VC12-4K) is packaged as **DKMS**: the `.d
 `/usr/src/HwsUHDX1CaptureForLinux-<version>` and DKMS builds the module on the machine for every installed kernel
 that has headers, rebuilding it automatically on every kernel update.
 
+See the [architecture diagram](architecture.png) for how the package, DKMS and the driver fit together.
+
 Supported releases: **Ubuntu 24.04** and **Ubuntu 26.04**.
 
 ## Download
