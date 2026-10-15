@@ -226,19 +226,20 @@ git push origin v1.0.0.230324-1
 
 ## Where to buy
 
-Prices checked in October 2026; they change often and imports may add taxes.
+Prices in US dollars, checked on 2026-10-15; they change often and imports may add taxes.
+`≈` marks prices converted from BRL or EUR at 1 USD = 5.04 BRL = 0.894 EUR.
 
 | Store | Listing | Price |
 |---|---|---|
-| AliExpress | [007 digital Store (4.9★, 2000+ sold)](https://pt.aliexpress.com/item/1005008747295104.html) | R$ 1,294.75 |
-| AliExpress | [VC12-4K PCIe capture card](https://pt.aliexpress.com/item/1005010070726407.html) | R$ 1,523.99 |
-| AliExpress | [VC12-4K 4K60 capture system](https://pt.aliexpress.com/item/1005012929048866.html) | R$ 1,540.99 |
-| AliExpress | [VC12-4K HDMI 2.0 PCIe2.0 x4](https://pt.aliexpress.com/item/1005012790270965.html) | R$ 2,246.60 |
+| AliExpress | [007 digital Store (4.9★, 2000+ sold)](https://pt.aliexpress.com/item/1005008747295104.html) | ≈ US$ 257 |
+| AliExpress | [VC12-4K PCIe capture card](https://pt.aliexpress.com/item/1005010070726407.html) | ≈ US$ 303 |
+| AliExpress | [VC12-4K 4K60 capture system](https://pt.aliexpress.com/item/1005012929048866.html) | ≈ US$ 306 |
+| AliExpress | [VC12-4K HDMI 2.0 PCIe2.0 x4](https://pt.aliexpress.com/item/1005012790270965.html) | ≈ US$ 446 |
 | AliExpress | [All VC12-4K listings](https://pt.aliexpress.com/w/wholesale-avmatrix-vc12%252d4k.html) | |
 | Amazon US | [B0B98W63VW](https://www.amazon.com/dp/B0B98W63VW) | US$ 279.00 |
 | Amazon US | [B0B9BNTKRK](https://www.amazon.com/dp/B0B9BNTKRK) | |
-| Amazon BR | [B0GWR78PQK](https://www.amazon.com.br/dp/B0GWR78PQK) | R$ 2,370.53 |
-| Amazon DE | [B0D3D6LSHP](https://www.amazon.de/dp/B0D3D6LSHP) | € 299.00 |
+| Amazon BR | [B0GWR78PQK](https://www.amazon.com.br/dp/B0GWR78PQK) | ≈ US$ 471 |
+| Amazon DE | [B0D3D6LSHP](https://www.amazon.de/dp/B0D3D6LSHP) | ≈ US$ 334 |
 | eBay | [284928062354](https://www.ebay.com/itm/284928062354) | US$ 279.00 + shipping |
 | Official | [avmatrix.com](https://www.avmatrix.com/products/vc12-4k-4k-hdmi-pcie-capture-card/) | |
 
