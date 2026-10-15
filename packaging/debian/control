@@ -1,0 +1,12 @@
+Package: hws-uhdx1-capture-dkms
+Version: @VERSION@
+Architecture: all
+Maintainer: Nilton OS <jniltinho@gmail.com>
+Depends: dkms, make, gcc
+Recommends: linux-headers-generic
+Section: kernel
+Priority: optional
+Homepage: https://github.com/GloriousEggroll/AVMATRIX-VC12-4K-CAPTURE
+Description: DKMS driver for the AVMATRIX VC12-4K PCI-E capture card
+ Linux kernel module HwsUHDX1Capture (HWS UHD X1), built by DKMS
+ for every installed kernel.

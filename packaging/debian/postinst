@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+    dkms add -m @NAME@ -v @MODVER@ >/dev/null 2>&1 || true
+    # Build for every installed kernel that has headers, not only the running one.
+    for build in /lib/modules/*/build; do
+        [ -d "$build" ] || continue
+        kver=$(basename "$(dirname "$build")")
+        dkms install -m @NAME@ -v @MODVER@ -k "$kver" || echo "WARNING: HwsUHDX1Capture failed to build for $kver" >&2
+    done
+    modprobe HwsUHDX1Capture 2>/dev/null || true
+fi
