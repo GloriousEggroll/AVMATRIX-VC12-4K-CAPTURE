@@ -296,12 +296,20 @@ struct hws_half_event {
 
 
 /* buffer for one video frame */
+/* zero-copy buffers end this far past the frame: an over-long last quarter run ends within a quarter + 2 KiB (register 9) */
+#define HWS_ZC_SLACK	8192
+
 struct hwsvideo_buffer {
 	/* common v4l buffer stuff -- must be first */
 	struct vb2_v4l2_buffer	vb;
 	struct list_head		queue;
 	void *					mem;
-
+	/* zero-copy (stage 4.4): the card writes the frame here; see hws_zc_program() */
+	dma_addr_t				dma;		/* 0 unless the queue is dma-contig */
+	bool					zc_in[2];	/* pointed at by quarter pair p (0 = top) in time */
+	bool					zc_away_in[2];	/* pair p moved on from it in time */
+	u32						zc_free_after[2];	/* card can't write it once video->zc_ev[p] reaches this */
+	enum vb2_buffer_state	zc_state;	/* how it completes once the card is done with it */
 };
 
 struct hws_dmabuf{
@@ -368,6 +376,19 @@ struct hws_video{
 	int						frame_len[4];	/* bytes in each DMA quarter */
 	bool					frame_hdcp;	/* HDCP was active at this frame's top half */
 	bool					hdcp_active;	/* last HDCP state the status thread logged */
+	/*
+	 * Zero-copy (stage 4.4), under cap_lock. zc_prog[p] is the buffer quarter
+	 * pair p (0 = top, 1 = bottom) points at in the card's registers, NULL
+	 * for the DMA buffers. zc_cur receives the frame in progress, zc_next the
+	 * one after it. A buffer the card may still write waits on zc_release.
+	 */
+	struct hws_vfh_ctx		*zc_ctx;
+	struct hwsvideo_buffer	*zc_prog[2], *zc_cur, *zc_next;
+	struct list_head		zc_release;
+	u32						zc_ev[2];	/* half-done interrupts seen per pair */
+	u32						zc_stable;	/* complete frames since the lengths last changed */
+	u64						zc_last_ts, zc_gap_prev;	/* for the in-time margin */
+	u32						zc_frames, zc_late, zc_errors, zc_outside;	/* debugfs */
 	//------------------------
 	struct v4l2_ctrl_handler ctrl_hdl;
 	struct v4l2_ctrl *ctrl_brightness;	/* cluster: brightness, contrast, saturation */
@@ -509,6 +530,7 @@ struct hws_pcie_dev {
 	u64       m_RateMinDeltaNs[MAX_VID_CHANNELS];	/* shortest frame interval in the window */
 	u64       m_FrameIntervalNs[MAX_VID_CHANNELS];	/* last measured, 0 = unknown */
 	u64       m_RateUpdatedNs[MAX_VID_CHANNELS];	/* when m_FrameIntervalNs was last written */
+	bool      zc_iommu;	/* the IOMMU translates for the card: zero-copy buffers possible (stage 4.4) */
 	uint8_t   m_ResumeVideo[MAX_VID_CHANNELS];	/* capture state saved across system sleep */
 	uint8_t   m_ResumeAudio[MAX_VID_CHANNELS];
 	uint8_t	  m_dwAudioField[MAX_VID_CHANNELS];

@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# Keep the capture card's interrupt off the V-cache CCD (SPEC H.2).
+#
+# Since stage 3 the driver's threaded IRQ handler copies every frame (about
+# 1 GB/s at 4K60) on the CPU the IRQ is routed to. On a CPU whose L3 domains
+# differ in size (AMD X3D parts with one V-cache CCD), that copy traffic runs
+# through the big cache that games depend on whenever the kernel happens to
+# route the IRQ there. This moves the card's IRQ to the CPUs of the smaller L3
+# domain(s). On a CPU with one L3 domain, or equal ones, it changes nothing.
+#
+# Usage:
+#   tools/irq-affinity status              show L3 domains, the card's IRQs and their CPUs
+#   tools/irq-affinity apply [--cpus LIST]     set the affinity now (root)
+#   tools/irq-affinity install [--cpus LIST]   apply now and at every driver bind;
+#                                          ban the driver's IRQs from irqbalance (root)
+#   tools/irq-affinity uninstall           undo install; IRQs back on all CPUs (root)
+# Options:
+#   --cpus LIST     use this CPU list (e.g. 8-15,24-31) instead of the L3 choice
+#   --device BDF    only this PCI device (e.g. 0000:0b:00.0); default: every
+#                   device bound to the driver
+set -euo pipefail
+
+DRIVER=HwsUHDX1Capture
+NAME=hws-irq-affinity
+BIN=/usr/local/sbin/$NAME
+RULE=/etc/udev/rules.d/90-$NAME.rules
+DROPIN=/etc/systemd/system/irqbalance.service.d/90-$NAME.conf
+CPU_SYSFS=${HWS_CPU_SYSFS:-/sys/devices/system/cpu}   # overridable for tests
+
+cmd=${1:-status}
+[ $# -gt 0 ] && shift
+cpus="" device=""
+while [ $# -gt 0 ]; do
+    case $1 in
+        --cpus) cpus=$2; shift 2 ;;
+        --device) device=$2; shift 2 ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+log() { echo "$NAME: $*"; }
+need_root() { [ "$(id -u)" = 0 ] || { echo "$NAME: $cmd needs root" >&2; exit 1; }; }
+
+devices() {
+    if [ -n "$device" ]; then
+        echo "$device"
+    else
+        local d
+        for d in /sys/bus/pci/drivers/"$DRIVER"/0000:*; do
+            [ -e "$d" ] && basename "$d"
+        done
+        return 0
+    fi
+}
+
+irqs_of() {     # MSI/MSI-X vectors if any, else the legacy line
+    local p=/sys/bus/pci/devices/$1
+    if [ -d "$p/msi_irqs" ] && [ -n "$(ls "$p/msi_irqs")" ]; then
+        ls "$p/msi_irqs"
+    else
+        cat "$p/irq"
+    fi
+}
+
+# "size_KiB cpulist" per distinct L3 domain
+l3_domains() {
+    local c idx
+    for c in "$CPU_SYSFS"/cpu[0-9]*; do
+        for idx in "$c"/cache/index*; do
+            [ "$(cat "$idx/level" 2>/dev/null)" = 3 ] || continue
+            echo "$(sed 's/K$//' "$idx/size") $(cat "$idx/shared_cpu_list")"
+        done
+    done | sort -u
+}
+
+# Prints the target CPU list, or nothing (with the reason on stderr).
+pick_cpus() {
+    if [ -n "$cpus" ]; then echo "$cpus"; return; fi
+    local doms n sizes max
+    doms=$(l3_domains)
+    n=$(grep -c . <<<"$doms" || true)
+    sizes=$(awk '{print $1}' <<<"$doms" | sort -un)
+    if [ "$n" -lt 2 ]; then
+        log "one L3 domain: nothing to separate, leaving the IRQ alone" >&2; return
+    fi
+    if [ "$(grep -c . <<<"$sizes")" -lt 2 ]; then
+        log "$n L3 domains of equal size: no V-cache domain to protect, leaving the IRQ alone" >&2; return
+    fi
+    max=$(tail -1 <<<"$sizes")
+    awk -v m="$max" '$1 < m {print $2}' <<<"$doms" | paste -sd,
+}
+
+set_affinity() {    # irq cpulist
+    if ! echo "$2" >"/proc/irq/$1/smp_affinity_list" 2>/dev/null; then
+        log "IRQ $1: could not set affinity $2" >&2; return 1
+    fi
+    log "IRQ $1 -> CPUs $2 (now on CPU $(cat "/proc/irq/$1/effective_affinity_list"))"
+}
+
+do_apply() {
+    local target dev irq rc=0
+    target=$(pick_cpus)
+    [ -n "$target" ] || return 0
+    for dev in $(devices); do
+        for irq in $(irqs_of "$dev"); do
+            set_affinity "$irq" "$target" || rc=1
+        done
+    done
+    return $rc
+}
+
+do_status() {
+    local dev irq tid
+    echo "L3 domains (KiB, CPUs):"
+    l3_domains | sed 's/^/  /'
+    local target
+    target=$(pick_cpus 2>&1) || true
+    echo "target: $target"
+    for dev in $(devices); do
+        for irq in $(irqs_of "$dev"); do
+            tid=$(ps -eo pid=,comm= | awk -v p="irq/$irq-" 'index($2,p)==1{print $1; exit}')
+            echo "$dev IRQ $irq: allowed $(cat "/proc/irq/$irq/smp_affinity_list"), on CPU $(cat "/proc/irq/$irq/effective_affinity_list")${tid:+, handler thread on CPU $(ps -o psr= -p "$tid" | tr -d ' ')}"
+        done
+    done
+    [ -e "$RULE" ] && echo "installed: $RULE" || echo "not installed"
+    [ -e "$DROPIN" ] && echo "irqbalance: driver IRQs banned ($DROPIN)"
+    return 0
+}
+
+do_install() {
+    need_root
+    install -m 0755 "$0" "$BIN"
+    local extra=""
+    [ -n "$cpus" ] && extra=" --cpus $cpus"
+    cat >"$RULE" <<EOF
+# Installed by $NAME (AVMATRIX-VC12-4K-CAPTURE tools/irq-affinity)
+ACTION=="bind", SUBSYSTEM=="pci", DRIVER=="$DRIVER", RUN+="$BIN apply --device %k$extra"
+EOF
+    udevadm control --reload
+    log "wrote $RULE"
+    if systemctl cat irqbalance.service >/dev/null 2>&1; then
+        local argv
+        argv=$(systemctl show irqbalance.service -p ExecStart --value | sed -n 's/.*argv\[\]=\([^;]*\);.*/\1/p' | sed 's/ *$//')
+        # shellcheck disable=SC2016  # systemd expands it, not this script
+        [ -n "$argv" ] || argv='/usr/sbin/irqbalance $IRQBALANCE_ARGS'
+        mkdir -p "$(dirname "$DROPIN")"
+        cat >"$DROPIN" <<EOF
+# Installed by $NAME: irqbalance leaves the capture card's IRQs where
+# $NAME puts them.
+[Service]
+ExecStart=
+ExecStart=$argv --banmod=$DRIVER
+EOF
+        systemctl daemon-reload
+        systemctl try-restart irqbalance.service
+        log "wrote $DROPIN and restarted irqbalance"
+    fi
+    do_apply
+}
+
+do_uninstall() {
+    need_root
+    rm -f "$RULE" "$BIN"
+    udevadm control --reload
+    if [ -e "$DROPIN" ]; then
+        rm -f "$DROPIN"
+        rmdir --ignore-fail-on-non-empty "$(dirname "$DROPIN")"
+        systemctl daemon-reload
+        systemctl try-restart irqbalance.service
+    fi
+    local dev irq all
+    all=$(cat /sys/devices/system/cpu/online)
+    for dev in $(devices); do
+        for irq in $(irqs_of "$dev"); do set_affinity "$irq" "$all" || true; done
+    done
+    log "removed"
+}
+
+case $cmd in
+    status) do_status ;;
+    apply) need_root; do_apply ;;
+    install) do_install ;;
+    uninstall) do_uninstall ;;
+    *) echo "usage: $0 status|apply|install|uninstall [--cpus LIST] [--device BDF]" >&2; exit 2 ;;
+esac

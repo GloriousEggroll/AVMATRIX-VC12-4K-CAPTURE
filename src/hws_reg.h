@@ -154,7 +154,8 @@ typedef enum {
  * Register 9: DMA size limit in 16-byte units. A quarter DMA'd with a length
  * shorter than the frame (the first frames after a resolution change) runs
  * on up to this offset and ends with a 2 KiB block there. Reset value 0x44000
- * (4.25 MiB), past the end of a 4 MiB buffer.
+ * (4.25 MiB), past the end of a 4 MiB buffer. The driver sets it to the
+ * largest programmed quarter (hws_set_dma_max).
  */
 #define HWS_REG_DMA_MAX_SIZE	(CVBS_IN_BASE + 9 * PCIE_BARADDROFSIZE)
 /* Register 8: bit ch set while the source uses HDCP (stage 4.1) */

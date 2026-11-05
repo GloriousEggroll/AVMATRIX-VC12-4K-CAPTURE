@@ -3,6 +3,7 @@
 
 #include <linux/pci.h>
 #include <linux/kernel.h>
+#include <linux/iommu.h>
 #include <media/videobuf2-core.h>
 #include <media/v4l2-device.h>
 #include <media/videobuf2-dma-contig.h>
@@ -39,6 +40,8 @@ static void WRITE_REGISTER_ULONG(struct hws_pcie_dev *pdx,u32 RegisterOffset,u32
 static u32 READ_REGISTER_ULONG(struct hws_pcie_dev *pdx,u32 RegisterOffset);
 static bool hws_any_queue_busy(struct hws_video *videodev);
 static void hws_check_source_change(struct hws_video *videodev);
+static bool hws_zc_wanted(struct hws_pcie_dev *pdx);
+static void hws_zc_stop(struct hws_pcie_dev *pdx, bool card_stopped);
 
 //------------------------
 
@@ -1183,12 +1186,26 @@ static int hws_mmap(struct file *file, struct vm_area_struct *vma)
 	return vb2_mmap(&hws_ctx_from_file(file)->vbq, vma);
 }
 
+/*
+ * An idle queue's memory type is picked when buffers are requested: MMAP
+ * buffers are dma-contig when zero-copy is possible (stage 4.4), so the card
+ * can write into them; otherwise, and for USERPTR, vmalloc as before.
+ */
+static void hws_pick_mem_ops(struct hws_vfh_ctx *ctx, u32 memory)
+{
+	if (vb2_is_busy(&ctx->vbq))
+		return;
+	ctx->vbq.mem_ops = memory == V4L2_MEMORY_MMAP && hws_zc_wanted(ctx->video->dev) ?
+			   &vb2_dma_contig_memops : &vb2_vmalloc_memops;
+}
+
 /* buffer ioctls: the caller's own queue, under its own lock */
 static int hws_reqbufs(struct file *file, void *priv, struct v4l2_requestbuffers *p)
 {
 	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
 	int ret;
 	mutex_lock(&ctx->qmutex);
+	hws_pick_mem_ops(ctx, p->memory);
 	ret = vb2_reqbufs(&ctx->vbq, p);
 	mutex_unlock(&ctx->qmutex);
 	return ret;
@@ -1199,6 +1216,7 @@ static int hws_create_bufs(struct file *file, void *priv, struct v4l2_create_buf
 	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
 	int ret;
 	mutex_lock(&ctx->qmutex);
+	hws_pick_mem_ops(ctx, p->memory);
 	ret = vb2_create_bufs(&ctx->vbq, p);
 	mutex_unlock(&ctx->qmutex);
 	return ret;
@@ -1511,6 +1529,9 @@ static int hws_queue_setup_multi(struct vb2_queue *q,
 
     *num_planes = 1;
     sizes[0] = size;
+    /* room for an over-long last quarter when the card writes the buffer itself */
+    if (q->mem_ops == &vb2_dma_contig_memops)
+        sizes[0] += HWS_ZC_SLACK;
     return 0;
 }
 
@@ -1533,6 +1554,8 @@ static int hws_buffer_prepare_multi(struct vb2_buffer *vb)
 
     vb2_set_plane_payload(vb, 0, size);
     buf->mem = vb2_plane_vaddr(vb, 0);
+    buf->dma = vb->vb2_queue->mem_ops == &vb2_dma_contig_memops ?
+               vb2_dma_contig_plane_dma_addr(vb, 0) : 0;
     return 0;
 }
 
@@ -1563,6 +1586,9 @@ static int hws_start_streaming_multi(struct vb2_queue *q, unsigned int count)
         mutex_lock(&videodev->cap_lock);
         videodev->dev->m_FrameSeq[videodev->index] = 0;
         videodev->top_done = false;
+        hws_zc_stop(videodev->dev, true);	/* the engine is off: nothing in flight */
+        videodev->zc_last_ts = 0;
+        videodev->zc_gap_prev = 0;
         /*
          * Program the DMA lengths for the live input now, not at the next
          * status poll: until then the card DMAs the frame with the old
@@ -1606,8 +1632,26 @@ static void hws_stop_streaming_multi(struct vb2_queue *q)
         hws_complete_buffer(ctx->held, VB2_BUF_STATE_ERROR);
         ctx->held = NULL;
     }
+    if (videodev->zc_ctx == ctx)
+        hws_zc_stop(videodev->dev, false);
     mutex_unlock(&videodev->cap_lock);
-    wait_event(ctx->inflight_wq, atomic_read(&ctx->inflight) == 0);
+    /*
+     * Zero-copy buffers come back once the card has moved past them, at the
+     * next half-frame interrupts. With no frames arriving (no signal) that
+     * can't be shown, so stop the engine briefly and let them go.
+     */
+    if (!wait_event_timeout(ctx->inflight_wq, atomic_read(&ctx->inflight) == 0,
+                            msecs_to_jiffies(250))) {
+        mutex_lock(&videodev->engine_lock);
+        StopVideoCapture(videodev->dev, videodev->index);
+        mutex_lock(&videodev->cap_lock);
+        hws_zc_stop(videodev->dev, true);
+        mutex_unlock(&videodev->cap_lock);
+        if (atomic_read(&videodev->engine_users) > 1)
+            StartVideoCapture(videodev->dev, videodev->index);
+        mutex_unlock(&videodev->engine_lock);
+        wait_event(ctx->inflight_wq, atomic_read(&ctx->inflight) == 0);
+    }
 
     /* Stop engine when the last streamer goes away */
     mutex_lock(&videodev->engine_lock);
@@ -3411,9 +3455,10 @@ static void hws_complete_buffer(struct hwsvideo_buffer *buf, enum vb2_buffer_sta
  * Give each streaming consumer that wants frame @seq one of its queued
  * buffers, unless it still holds one from a frame that never completed. A
  * consumer that asked for a lower rate (S_PARM) skips frames. The buffers
- * go on video->frame_bufs.
+ * go on video->frame_bufs. @skip, if set, gets the frame by zero-copy.
  */
-static void hws_hold_buffers(struct hws_video *v, u32 seq, u32 out_size)
+static void hws_hold_buffers(struct hws_video *v, u32 seq, u32 out_size,
+			     struct hws_vfh_ctx *skip)
 {
 	struct hws_vfh_ctx *ctx;
 	struct hwsvideo_buffer *buf, *tmp;
@@ -3422,7 +3467,7 @@ static void hws_hold_buffers(struct hws_video *v, u32 seq, u32 out_size)
 
 	spin_lock_irqsave(&v->consumers_lock, flags);
 	list_for_each_entry(ctx, &v->consumers, node) {
-		if (!ctx->streaming || ctx->held)
+		if (!ctx->streaming || ctx->held || ctx == skip)
 			continue;
 		if (seq < ctx->next_seq && ctx->next_seq - seq <= ctx->decimate)
 			continue;
@@ -3476,6 +3521,256 @@ static void hws_finish_frame(struct hws_video *v, enum vb2_buffer_state state,
 }
 
 /*
+ * Zero-copy (stage 4.4). Probe 4.4 showed that the card takes a new address
+ * in registers 16-19 for every frame: a value written after a quarter pair's
+ * half-done interrupt applies to that pair in the next frame. So one
+ * consumer's buffer can receive the frame directly, and other consumers copy
+ * from it. Only for a progressive input captured at its own size, without
+ * HDCP, into an MMAP buffer allocated dma-contig through a translating IOMMU
+ * whose quarters fall inside the card's address windows (the table is never
+ * rewritten: entry 0 also maps the audio ring). Anything else uses the DMA
+ * buffers and the copy path, as before.
+ *
+ * The card must never write a buffer after it is returned. A pair's next run
+ * starts about one half-frame after its half-done interrupt, so a register
+ * write within half of the shortest recent gap between half interrupts is in
+ * time. A buffer is released once no pair points at it and, for a pair that
+ * moved on late, after that pair's next half-done interrupt; a buffer touched
+ * by a late write completes with an error.
+ */
+static bool zero_copy;
+module_param(zero_copy, bool, 0644);
+MODULE_PARM_DESC(zero_copy, "let the card write frames into an app's buffers when the IOMMU allows it (default off)");
+
+
+static bool hws_iommu_translates(struct device *dev)
+{
+	struct iommu_domain *d = iommu_get_domain_for_dev(dev);
+
+	if (!d)
+		return false;
+#ifdef IOMMU_DOMAIN_DMA_FQ
+	if (d->type == IOMMU_DOMAIN_DMA_FQ)
+		return true;
+#endif
+	return d->type == IOMMU_DOMAIN_DMA;
+}
+
+static bool hws_zc_wanted(struct hws_pcie_dev *pdx)
+{
+	return READ_ONCE(zero_copy) && pdx->zc_iommu;
+}
+
+static u32 hws_zc_off(struct hws_pcie_dev *pdx, int q)
+{
+	u32 off = 0;
+	int i;
+
+	for (i = 0; i < q; i++)
+		off += pdx->m_format[i].HLAF_SIZE;
+	return off;
+}
+
+/* The card's address for quarter @q of @buf, or of its own DMA buffer if @buf is NULL. */
+static u32 hws_zc_reg(struct hws_pcie_dev *pdx, struct hwsvideo_buffer *buf, int q)
+{
+	u64 a = buf ? buf->dma + hws_zc_off(pdx, q) : pdx->m_pbyVideo_phys[q];
+
+	return (q + 1) * PCIEBAR_AXI_BASE + (u32)(a & PCI_E_BAR_ADD_LOWMASK);
+}
+
+/* the stale-half mark (HWS_HALF_MARK) for pair @p, at the place hws_half_mark() uses in a DMA buffer */
+static u32 *hws_zc_mark(struct hws_pcie_dev *pdx, struct hwsvideo_buffer *buf, int p, int pitch)
+{
+	int q = p ? 3 : 1;
+	int len = pdx->m_format[q].HLAF_SIZE;
+
+	return (u32 *)((u8 *)buf->mem + hws_zc_off(pdx, q) + (len - (len / pitch - 1) * pitch));
+}
+
+/*
+ * A run of any quarter can reach up to the largest quarter plus 2 KiB past
+ * its start (register 9), so everything from the buffer's start to that far
+ * past the last quarter must be inside the buffer and inside every quarter's
+ * window: a run through window q past its end would land elsewhere.
+ */
+static bool hws_zc_buffer_ok(struct hws_pcie_dev *pdx, struct hwsvideo_buffer *buf)
+{
+	u32 max = 0, end;
+	u64 first, last;
+	int q;
+
+	for (q = 0; q < 4; q++)
+		max = max_t(u32, max, pdx->m_format[q].HLAF_SIZE);
+	end = hws_zc_off(pdx, 3) + max + 2048;
+	if (!buf->dma || !buf->mem || vb2_plane_size(&buf->vb.vb2_buf, 0) < end)
+		return false;
+	first = buf->dma & ~(u64)PCI_E_BAR_ADD_LOWMASK;
+	last = (buf->dma + end - 1) & ~(u64)PCI_E_BAR_ADD_LOWMASK;
+	for (q = 0; q < 4; q++) {
+		u64 win = ((u64)pdx->m_dwVideoHighBuffer[q] << 32) | (pdx->m_dwVideoBuffer[q] & PCI_E_BAR_ADD_MASK);
+
+		if (first != win || last != win)
+			return false;
+	}
+	return true;
+}
+
+/* Complete every buffer on zc_release the card can no longer write. */
+static void hws_zc_release(struct hws_video *v)
+{
+	struct hwsvideo_buffer *buf, *tmp;
+
+	list_for_each_entry_safe(buf, tmp, &v->zc_release, queue) {
+		if (buf == v->zc_prog[0] || buf == v->zc_prog[1] ||
+		    (s32)(v->zc_ev[0] - buf->zc_free_after[0]) < 0 ||
+		    (s32)(v->zc_ev[1] - buf->zc_free_after[1]) < 0)
+			continue;
+		list_del(&buf->queue);
+		if (buf->zc_state == VB2_BUF_STATE_DONE)
+			((struct hws_vfh_ctx *)vb2_get_drv_priv(buf->vb.vb2_buf.vb2_queue))->delivered++;
+		hws_complete_buffer(buf, buf->zc_state);
+	}
+}
+
+static void hws_zc_retire(struct hws_video *v, struct hwsvideo_buffer *buf, enum vb2_buffer_state state)
+{
+	buf->zc_state = state;
+	list_add_tail(&buf->queue, &v->zc_release);
+}
+
+/*
+ * Point quarter pair @p at @buf (NULL: the DMA buffers). @ts is the half-done
+ * interrupt this follows and @margin how long after it a write is in time;
+ * @ts 0 means a write at an arbitrary moment, never in time.
+ */
+static void hws_zc_program(struct hws_pcie_dev *pdx, int p, struct hwsvideo_buffer *buf,
+			   u64 ts, u64 margin, int pitch)
+{
+	struct hws_video *v = &pdx->video[0];
+	struct hwsvideo_buffer *old = v->zc_prog[p];
+	bool in_time;
+	int q;
+
+	if (!buf && !old)
+		return;		/* already on the DMA buffers */
+	if (buf)
+		*hws_zc_mark(pdx, buf, p, pitch) = HWS_HALF_MARK;
+	for (q = 2 * p; q < 2 * p + 2; q++)
+		WRITE_REGISTER_ULONG(pdx, CBVS_IN_BUF_BASE + q * PCIE_BARADDROFSIZE, hws_zc_reg(pdx, buf, q));
+	in_time = ts && ktime_get_ns() - ts < margin;
+	if (!in_time && ts)
+		v->zc_late++;
+	if (old) {
+		old->zc_away_in[p] = in_time;
+		old->zc_free_after[p] = v->zc_ev[p] + !in_time;
+	}
+	if (buf)
+		buf->zc_in[p] = in_time;
+	v->zc_prog[p] = buf;
+}
+
+/*
+ * Take the zero-copy consumer's next buffer for the frame after this one, or
+ * NULL to use the DMA buffers.
+ */
+static struct hwsvideo_buffer *hws_zc_pick(struct hws_pcie_dev *pdx, bool direct, int pitch, int w)
+{
+	struct hws_video *v = &pdx->video[0];
+	struct hws_vfh_ctx *ctx, *found = NULL;
+	struct hwsvideo_buffer *buf;
+	unsigned long flags, qflags;
+
+	if (!hws_zc_wanted(pdx) || v->zc_stable < 2 || !direct ||
+	    pitch != w * 2 || hws_hdcp_active(pdx, 0))
+		return NULL;
+	spin_lock_irqsave(&v->consumers_lock, flags);
+	list_for_each_entry(ctx, &v->consumers, node) {
+		if (ctx->streaming && ctx->decimate == 1 && ctx->vbq.mem_ops == &vb2_dma_contig_memops &&
+		    (!found || ctx == v->zc_ctx))
+			found = ctx;
+	}
+	buf = NULL;
+	if (found) {
+		spin_lock_irqsave(&found->qlock, qflags);
+		buf = list_first_entry_or_null(&found->buf_queue, struct hwsvideo_buffer, queue);
+		if (buf && hws_zc_buffer_ok(pdx, buf)) {
+			list_del(&buf->queue);
+			atomic_inc(&found->inflight);
+		} else {
+			if (buf)
+				v->zc_outside++;	/* stays queued for the copy path */
+			buf = NULL;
+		}
+		spin_unlock_irqrestore(&found->qlock, qflags);
+	}
+	spin_unlock_irqrestore(&v->consumers_lock, flags);
+	if (!buf)
+		return NULL;
+	v->zc_ctx = found;
+	memset(buf->zc_in, 0, sizeof(buf->zc_in));
+	memset(buf->zc_away_in, 0, sizeof(buf->zc_away_in));
+	memset(buf->zc_free_after, 0, sizeof(buf->zc_free_after));
+	buf->zc_free_after[0] = v->zc_ev[0];
+	buf->zc_free_after[1] = v->zc_ev[1];
+	return buf;
+}
+
+/* The frame in zc_cur has ended (bottom half): hand it on, and move to the next. */
+static void hws_zc_frame_end(struct hws_video *v, enum vb2_buffer_state state, u64 ts, u32 seq, u32 out_size)
+{
+	struct hwsvideo_buffer *buf = v->zc_cur;
+
+	if (buf) {
+		if (state == VB2_BUF_STATE_DONE &&
+		    !(buf->zc_in[0] && buf->zc_in[1] && buf->zc_away_in[0] && buf->zc_away_in[1]))
+			state = VB2_BUF_STATE_ERROR;
+		if (state == VB2_BUF_STATE_DONE) {
+			buf->vb.vb2_buf.timestamp = ts;
+			buf->vb.field = V4L2_FIELD_NONE;
+			buf->vb.sequence = seq;
+			vb2_set_plane_payload(&buf->vb.vb2_buf, 0, out_size);
+			v->zc_frames++;
+		} else {
+			v->zc_errors++;
+		}
+		hws_zc_retire(v, buf, state);
+	}
+	v->zc_cur = v->zc_next;
+	v->zc_next = NULL;
+	hws_zc_release(v);
+}
+
+/*
+ * Back to the DMA buffers now (input size change, consumer stop, engine
+ * start). In-flight buffers complete with an error once the card is past
+ * them; with @card_stopped they go at once.
+ */
+static void hws_zc_stop(struct hws_pcie_dev *pdx, bool card_stopped)
+{
+	struct hws_video *v = &pdx->video[0];
+	struct hwsvideo_buffer *buf;
+	int p;
+
+	for (p = 0; p < 2; p++)
+		hws_zc_program(pdx, p, NULL, 0, 0, 0);
+	if (v->zc_cur)
+		hws_zc_retire(v, v->zc_cur, VB2_BUF_STATE_ERROR);
+	if (v->zc_next)
+		hws_zc_retire(v, v->zc_next, VB2_BUF_STATE_ERROR);
+	v->zc_cur = v->zc_next = NULL;
+	v->zc_ctx = NULL;
+	v->zc_stable = 0;
+	if (card_stopped) {
+		list_for_each_entry(buf, &v->zc_release, queue) {
+			buf->zc_free_after[0] = v->zc_ev[0];
+			buf->zc_free_after[1] = v->zc_ev[1];
+		}
+	}
+	hws_zc_release(v);
+}
+
+/*
  * Produce the output frame from the staging copy: line-double interlaced
  * fields, then scale if the output size differs from the input.
  */
@@ -3506,11 +3801,14 @@ static int hws_render_staged(struct hws_pcie_dev *pdx, int ch, BYTE *dest, int o
 }
 
 /*
- * One half of a frame has landed (@half as in struct hws_half_event). The top
- * half takes a buffer from each consumer and fills its first two quarters;
- * the bottom half fills the rest and completes the buffers with the frame-end
- * time @ts. A half the card did not refresh, or a bottom half without its top
- * half, loses the frame; held buffers then wait for the next one.
+ * One half of a frame has landed (@half as in struct hws_half_event). First,
+ * that quarter pair is pointed at the next frame's destination (zero-copy,
+ * above). Then the top half takes a buffer from each consumer and fills its
+ * first two quarters; the bottom half fills the rest and completes the
+ * buffers with the frame-end time @ts. The halves come from the DMA buffers
+ * or from the zero-copy buffer zc_cur, which already holds the frame. A half
+ * the card did not refresh, or a bottom half without its top half, loses the
+ * frame; held buffers then wait for the next one.
  */
 static void hws_video_half(struct hws_pcie_dev *pdx, int ch, int half, u64 ts)
 {
@@ -3522,27 +3820,53 @@ static void hws_video_half(struct hws_pcie_dev *pdx, int ch, int half, u64 ts)
 	int out_w = v->current_out_width, out_h = v->curren_out_height;
 	u32 out_size = out_w * out_h * 2;
 	int pitch = pdx->m_Device_SupportYV12 == 1 ? w * 12 / 8 : w * 2;
-	int b = half ? 0 : 2;	/* first DMA buffer of this half */
-	BYTE *src0 = pdx->m_pbyVideoBuffer[b], *src1 = pdx->m_pbyVideoBuffer[b + 1];
+	int p = half ? 0 : 1;	/* quarter pair */
+	int b = half ? 0 : 2;	/* first quarter of this half */
 	bool direct = !il && w == out_w && h == out_h;
+	struct hwsvideo_buffer *zf = v->zc_cur;	/* the zero-copy buffer this frame went to, if any */
 	enum vb2_buffer_state state = VB2_BUF_STATE_DONE;
 	struct hwsvideo_buffer *buf;
-	BYTE *first = NULL;
+	BYTE *src0, *src1, *first = NULL;
+	u64 gap, margin;
 	u32 *mark;
 	int i, off, len2, len3;
 
 	if (w <= 0 || h <= 0 || w > MAX_VIDEO_HW_W || h > MAX_VIDEO_HW_H || !vi->dwisRuning)
 		return;
-	dma_sync_single_for_cpu(&pdx->pdev->dev, pdx->m_pbyVideo_phys[b], pdx->m_MaxHWVideoBufferSize, DMA_FROM_DEVICE);
-	dma_sync_single_for_cpu(&pdx->pdev->dev, pdx->m_pbyVideo_phys[b + 1], pdx->m_MaxHWVideoBufferSize, DMA_FROM_DEVICE);
-	mark = hws_half_mark(pdx, half, pitch);
-	if (*mark == HWS_HALF_MARK) {
-		/* stale: the card did not write this half */
+
+	/* the pair's next run starts about a half-frame after this interrupt */
+	gap = v->zc_last_ts && ts > v->zc_last_ts ? ts - v->zc_last_ts : 0;
+	margin = min(gap, v->zc_gap_prev) / 2;
+	v->zc_gap_prev = gap;
+	v->zc_last_ts = ts;
+	v->zc_ev[p]++;
+	if (half) {
+		if (v->zc_next)		/* its bottom half never came */
+			hws_zc_retire(v, v->zc_next, VB2_BUF_STATE_ERROR);
+		v->zc_next = hws_zc_pick(pdx, direct, pitch, w);
+	}
+	hws_zc_program(pdx, p, v->zc_next, ts, margin, pitch);
+
+	if (zf) {
+		src0 = (BYTE *)zf->mem + hws_zc_off(pdx, b);
+		src1 = (BYTE *)zf->mem + hws_zc_off(pdx, b + 1);
+		mark = hws_zc_mark(pdx, zf, p, pitch);
+	} else {
+		src0 = pdx->m_pbyVideoBuffer[b];
+		src1 = pdx->m_pbyVideoBuffer[b + 1];
+		dma_sync_single_for_cpu(&pdx->pdev->dev, pdx->m_pbyVideo_phys[b], pdx->m_MaxHWVideoBufferSize, DMA_FROM_DEVICE);
+		dma_sync_single_for_cpu(&pdx->pdev->dev, pdx->m_pbyVideo_phys[b + 1], pdx->m_MaxHWVideoBufferSize, DMA_FROM_DEVICE);
+		mark = hws_half_mark(pdx, half, pitch);
+	}
+	if (*mark == HWS_HALF_MARK || (zf && !zf->zc_in[p])) {
+		/* stale: the card did not write this half here */
 		if (v->top_done) {
 			v->top_done = false;
 			pdx->m_FramesDropped[ch]++;
 			pdx->m_FrameSeq[ch]++;
 		}
+		if (!half)
+			hws_zc_frame_end(v, VB2_BUF_STATE_ERROR, 0, 0, 0);
 		return;
 	}
 
@@ -3561,7 +3885,8 @@ static void hws_video_half(struct hws_pcie_dev *pdx, int ch, int half, u64 ts)
 		 * source uses HDCP: the frame is delivered black instead.
 		 */
 		v->frame_hdcp = hws_hdcp_active(pdx, ch);
-		hws_hold_buffers(v, pdx->m_FrameSeq[ch], out_size);
+		hws_hold_buffers(v, pdx->m_FrameSeq[ch], out_size,
+				 zf ? vb2_get_drv_priv(zf->vb.vb2_buf.vb2_queue) : NULL);
 		if (v->frame_hdcp) {
 			/* nothing copied; the bottom half blanks the buffers */
 		} else if (direct) {
@@ -3582,6 +3907,7 @@ static void hws_video_half(struct hws_pcie_dev *pdx, int ch, int half, u64 ts)
 		v->top_done = false;
 		pdx->m_FramesDropped[ch]++;
 		pdx->m_FrameSeq[ch]++;
+		hws_zc_frame_end(v, VB2_BUF_STATE_ERROR, 0, 0, 0);
 		goto out;
 	}
 	v->top_done = false;
@@ -3591,6 +3917,8 @@ static void hws_video_half(struct hws_pcie_dev *pdx, int ch, int half, u64 ts)
 	if (len3 < 0) {
 		state = VB2_BUF_STATE_ERROR;
 	} else if (v->frame_hdcp || hws_hdcp_active(pdx, ch)) {
+		if (zf)		/* the card wrote the frame there: blank it like the others */
+			memset32(zf->mem, 0x80108010, out_size / 4);
 		list_for_each_entry(buf, &v->frame_bufs, queue) {
 			if (first) {
 				memcpy(buf->mem, first, out_size);
@@ -3618,9 +3946,13 @@ static void hws_video_half(struct hws_pcie_dev *pdx, int ch, int half, u64 ts)
 			}
 		}
 	}
+	if (state == VB2_BUF_STATE_DONE)
+		v->zc_stable++;
+	hws_zc_frame_end(v, state, ts, pdx->m_FrameSeq[ch], out_size);
 	hws_finish_frame(v, state, ts, pdx->m_FrameSeq[ch]++, out_size);
 out:
-	*mark = HWS_HALF_MARK;
+	if (!zf)	/* never in a zero-copy buffer: that word is part of the picture */
+		*mark = HWS_HALF_MARK;
 }
 
 /* No usable signal: give each streaming consumer a blue frame (status thread, each poll). */
@@ -3633,7 +3965,7 @@ static void hws_deliver_no_video(struct hws_pcie_dev *pdx, int ch)
 	BYTE *first = NULL;
 
 	v->top_done = false;
-	hws_hold_buffers(v, pdx->m_FrameSeq[ch], out_size);
+	hws_hold_buffers(v, pdx->m_FrameSeq[ch], out_size, NULL);
 	list_for_each_entry(buf, &v->frame_bufs, queue) {
 		if (first) {
 			memcpy(buf->mem, first, out_size);
@@ -5116,6 +5448,29 @@ static struct hws_pcie_dev *alloc_dev_instance(struct pci_dev *pdev)
 }
 
 
+/*
+ * Register 9 caps an over-long quarter run (HWS_REG_DMA_MAX_SIZE) at the
+ * largest programmed quarter, so a run with stale lengths ends at most a
+ * quarter plus the 2 KiB block past its start: inside the 4.5 MiB DMA
+ * buffers, and within the slack of a buffer the card writes directly
+ * (stage 4.4). Never above the old limit, which kept clear of the audio
+ * ring. Called wherever the quarter lengths are programmed.
+ */
+static void hws_set_dma_max(struct hws_pcie_dev *pdx)
+{
+	u32 max = 0, cap;
+	int i;
+
+	if (!pdx->m_DeviceHW_Version || !pdx->m_MaxHWVideoBufferSize)
+		return;
+	for (i = 0; i < 4; i++)
+		max = max_t(u32, max, pdx->m_format[i].HLAF_SIZE);
+	cap = pdx->m_MaxHWVideoBufferSize - MAX_AUDIO_CAP_SIZE - 2048;
+	if (!max || max > cap)
+		max = cap;
+	WRITE_REGISTER_ULONG(pdx, HWS_REG_DMA_MAX_SIZE, max / 16);
+}
+
 static void SetDMAAddress(struct hws_pcie_dev *pdx)
 {
 	//-------------------------------------
@@ -5220,6 +5575,7 @@ static int ChangeVideoSize(struct hws_pcie_dev *pdx,int ch,int w,int h,int inter
 	int halfframeLength[4];
 	unsigned long flags;
 	if(ch != 0) return -1;
+	hws_zc_stop(pdx, false);	/* zero-copy buffers are sized for the old input */
 	if(SetVideoFormteSize(pdx,ch,w,h) != 1)
 	{
 		return -1;
@@ -5241,6 +5597,7 @@ static int ChangeVideoSize(struct hws_pcie_dev *pdx,int ch,int w,int h,int inter
 	WRITE_REGISTER_ULONG(pdx,(DWORD)(CBVS_IN_BUF_BASE2 + (1*PCIE_BARADDROFSIZE)), halfframeLength[1]); //Buffer 1 address
 	WRITE_REGISTER_ULONG(pdx,(DWORD)(CBVS_IN_BUF_BASE2 + (2*PCIE_BARADDROFSIZE)), halfframeLength[2]); //Buffer 1 address
 	WRITE_REGISTER_ULONG(pdx,(DWORD)(CBVS_IN_BUF_BASE2 + (3*PCIE_BARADDROFSIZE)), halfframeLength[3]); //Buffer 1 address
+	hws_set_dma_max(pdx);
 	hws_fill_canary(pdx);
 	return 0;
 }
@@ -5571,15 +5928,8 @@ static void InitVideoSys(struct hws_pcie_dev *pdx,int set)
 	if(pdx->m_bStartRun&&(set==0)) return;
 	WRITE_REGISTER_ULONG(pdx,( CVBS_IN_BASE + (0 * PCIE_BARADDROFSIZE)), 0X00);
 	SetDMAAddress(pdx);
-	/*
-	 * Keep an over-long quarter, and the 2 KiB block the card writes where
-	 * it stops, inside the buffer and clear of the audio ring at its end.
-	 * Still larger than the biggest quarter (4096x2160). Re-applied after
-	 * suspend, which resets it.
-	 */
-	if (pdx->m_DeviceHW_Version && pdx->m_MaxHWVideoBufferSize)
-		WRITE_REGISTER_ULONG(pdx, HWS_REG_DMA_MAX_SIZE,
-				     (pdx->m_MaxHWVideoBufferSize - MAX_AUDIO_CAP_SIZE - 2048) / 16);
+	/* re-applied here after suspend, which resets it */
+	hws_set_dma_max(pdx);
 	if(set ==0)
 	{
 		for(i=0; i<pdx->m_nMaxChl;i++)
@@ -5762,6 +6112,10 @@ static int hws_dbg_status_show(struct seq_file *m, void *unused)
 	seq_printf(m, "interrupts: %u, video halves: %u, audio packets: %u, half queue full: %u\n",
 		   READ_ONCE(pdx->irq_total), READ_ONCE(pdx->irq_video),
 		   READ_ONCE(pdx->irq_audio), READ_ONCE(pdx->irq_fifo_full));
+	seq_printf(m, "zero-copy: %s; frames %u, failed %u, late writes %u, buffers outside the window %u%s\n",
+		   !pdx->zc_iommu ? "unavailable (IOMMU not translating)" : zero_copy ? "on" : "off",
+		   v->zc_frames, v->zc_errors, v->zc_late, v->zc_outside,
+		   v->zc_cur || v->zc_next ? ", in use" : "");
 	seq_printf(m, "audio: gaps filled with silence: %u, silence packets: %u%s\n",
 		   READ_ONCE(pdx->audio[0].silence_gaps), READ_ONCE(pdx->audio[0].silence_pkts),
 		   READ_ONCE(pdx->audio[0].in_gap) ? ", in a gap now" : "");
@@ -5926,6 +6280,7 @@ static int hws_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 	{
 		mutex_init(&gdev->video[i].cap_lock);
 		INIT_LIST_HEAD(&gdev->video[i].frame_bufs);
+		INIT_LIST_HEAD(&gdev->video[i].zc_release);
 		SetVideoFormteSize(gdev,i,1920,1080);
 		for (j = 0; j<MAX_VIDEO_QUEUE; j++)
 		{
@@ -5968,6 +6323,7 @@ static int hws_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 		ret = -ENODEV;
 		goto err_video;
 	}
+	gdev->zc_iommu = hws_iommu_translates(&pdev->dev);
 	hws_debugfs_init(gdev);
 	return 0;
 
@@ -6019,6 +6375,9 @@ static int hws_suspend(struct device *d)
 	}
 	if (pdx->irq_line != -1)
 		synchronize_irq(pdx->irq_line);
+	mutex_lock(&pdx->video[0].cap_lock);
+	hws_zc_stop(pdx, true);		/* capture is off: no zero-copy buffer stays in flight */
+	mutex_unlock(&pdx->video[0].cap_lock);
 	if (pdx->auwq)
 		flush_workqueue(pdx->auwq);
 	return 0;

@@ -333,3 +333,53 @@ The probe build ran on branch `probe/zero-copy`; that code is debug-only and not
   - No `IO_PAGE_FAULT`, and no stray-DMA canary hit.
 
 So the card takes a new address for every frame and applies it to the next one. Zero-copy into app buffers can work on this card.
+
+## H.2: IRQ placement on the 9950X3D (driver `1f3e39a`)
+
+The PS5 sent 3840×2160p60 while OBS captured 3840×2160, so the IRQ thread copied about 1 GB/s. A pointer-chase benchmark ran one thread on each core of the V-cache CCD (CPUs 0–7), chasing a random cycle through a shared working set. Each configuration ran 15 s, three rounds alternating, with the card's IRQ pinned either to CPU 4 (V-cache CCD, where it booted) or to CPUs 8–15 and 24–31 (the other CCD). Without capture, the working set fits the 96 MiB V-cache up to about 80 MiB (684 M loads/s at 72 MiB, 323 M at 88 MiB).
+
+| Working set | IRQ on CPU 4: M loads/s per round | IRQ on the other CCD: M loads/s per round |
+|---|---|---|
+| 64 MiB | 697, 125, 531 (per-second spread up to ±312) | 784, 786, 785 (±5) |
+| 80 MiB | 649, 567, 579 | 718, 602, 685 |
+
+- **Effect:** at 64 MiB, the copy through the V-cache CCD cut throughput by a third on average, and once to DRAM speed. With the IRQ on the other CCD, throughput per thread matched the run without capture (98 M loads/s).
+- **The copy's own cost:** the IRQ thread used 0.80–0.89 s per 15 s on CPU 4 and 0.83–0.95 s on the other CCD.
+- **Default placement:** with the default mask (all CPUs), the kernel put the IRQ on CPU 4 at boot, and on CPU 25 when the mask was rewritten. Which CCD it lands on is chance.
+- **Caveat:** this is a worst case, a load that lives in the V-cache. Games gain less, by how much depends on the game.
+
+**`tools/irq-affinity install`:**
+- It pinned IRQ 202 to 8–15,24–31 and wrote a udev rule that reapplies the pin whenever the driver binds a device.
+- It added an irqbalance drop-in with `--banmod=HwsUHDX1Capture`. irqbalance's control socket then listed 121 balanced IRQs, including the neighbours 200, 201 and 205, but not 202.
+- With fake sysfs topologies the choice is: one L3 domain, no change; two equal domains (non-X3D or dual V-cache), no change; X3D, the smaller domain's CPUs.
+
+After a reboot, the udev rule had pinned IRQ 202 to 8–15,24–31 at driver bind: the IRQ and its handler thread ran on CPU 9, and irqbalance started with `--banmod=HwsUHDX1Capture`. OBS captured normally.
+
+### 4.4: zero-copy, round 1 (driver `821f2d1`, srcversion `3538EA2396BF2C18A6E6C22`)
+
+PS5 at 3840×2160p59.94, OBS closed, IOMMU `DMA-FQ`. `tests/zctest.sh` ran 600 frames per case through `framecheck.py`. It switched the `zero_copy` parameter at runtime and read the IRQ thread's CPU time from `/proc` (10 ms resolution).
+
+| Case | Delivery | IRQ thread CPU, 600 frames | Zero-copy frames |
+|---|---|---|---|
+| Copy path (`zero_copy=0`, MMAP) | 59.94 fps, 600 unique, no gaps, deltas 16.67–16.70 ms | 540 ms | — |
+| Zero-copy (MMAP) | 59.94 fps, 600 unique, no gaps, deltas 16.50–16.87 ms | 0 ms | 597 (the first 3 waited for 2 stable frames) |
+| Zero-copy plus a second MMAP stream | both 59.94 fps, 600 unique, no gaps | 570 ms (the second stream's copy) | 597 |
+| USERPTR (copy path, vmalloc queue) | 59.94 fps, 600 unique, no gaps | 510 ms | — |
+| 100 start/stop cycles, 1–7 frames each | none failed | — | 140 |
+
+- **Correctness:**
+  - No failed zero-copy frames, no late register writes, and no buffer outside the window.
+  - Kernel log: no `IO_PAGE_FAULT`, no stray-DMA canary hits, no warnings.
+- **Picture:** a frame captured by zero-copy and one by the copy path render identically: the full 4K home screen, no seams at the quarter boundaries. Mean luma per quarter matches, and no stale-half mark word is left in the picture.
+- **Register 9:**
+  - read 0x3F500 during 4K capture: the largest quarter, 4149248 bytes;
+  - read 0xFE00 before the first stream: the 1080p default lengths set at load.
+
+### 4.4: zero-copy, round 2 with OBS (driver `821f2d1`, `zero_copy=1` set before OBS started)
+
+| Check | Result |
+|---|---|
+| OBS at 3840×2160 | Picture and console audio normal. 303 zero-copy frames per 5 s (60 fps); IRQ thread 0 ms CPU per 5 s, against about 270 ms on the copy path. OBS's consumer had no buffer missing. |
+| PS5 to 1080p and back to 4K | Zero-copy stepped aside for the switch and came back by itself at 4K, again with 0 ms CPU. One zero-copy frame completed with an error (the frame in flight at a switch); no late writes. The canary logged two 2 KiB blocks in DMA buffer 0, at 0xfe000 and 0x3f5000. Those are register 9 × 16 for the 1080p and 4K quarters, the new cap. Before register 9 followed the quarter size, the same switches wrote runs up to 0x47d7ff. |
+| Suspend and resume with OBS open | Card re-initialised and the picture came back. Zero-copy resumed with no failures or late writes. OBS's consumer counted 93 frames with no buffer queued, once, right after the wake-up, before OBS had re-queued its buffers. |
+| Kernel log | No `IO_PAGE_FAULT`, no warnings |
