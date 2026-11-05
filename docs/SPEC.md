@@ -1,6 +1,6 @@
 # VC12-4K driver fixes and features
 
-This spec covers fixes and features for the HwsUHDX1Capture driver (AVMatrix VC12-4K, PCI `8888:8581`). It is split into a baseline and three stages. Each stage lists its changes and how to check them.
+This spec covers fixes and features for the HwsUHDX1Capture driver (AVMatrix VC12-4K, PCI `8888:8581`). It is split into a baseline and five stages, plus host settings outside the driver. Each stage lists its changes and how to check them. Stages 4 and 5 are proposals: some stage 4 items are experiments, and stage 5 depends on getting vendor binaries. [REGISTERS.md](REGISTERS.md) lists what is known about the card's registers.
 
 Line numbers refer to `src/hws_video.c` at commit `f40a4d5` (branch `fix/audio-batch-timing`).
 
@@ -20,10 +20,17 @@ A review of the driver against a running card (FPGA version 122, PCIe 2.0 x4) fo
 
 ## Ground rules
 
-- **Branches** are stacked on `fix/audio-batch-timing`: `fix/video-delivery` → `feat/input-status` → `rework/single-copy`. To upstream, rebase each topic onto `main`. The stages don't touch the audio code.
+- **Branches and PRs.** Each stage has its own branch, stacked on the one before:
+  - `fix/audio-batch-timing` (audio fix)
+  - `fix/video-delivery` (stages 0 and 1)
+  - `feat/input-status` (stage 2)
+  - `rework/single-copy` (stage 3)
+  - one new branch for each later stage
+
+  Each branch becomes one PR to upstream `main`, opened in order. After a PR merges, rebase the next branch onto upstream `main` so its PR shows only its own stage. The stages don't touch the audio code. Commits that change docs never change `src/`, so a PR can keep or drop the docs.
 - **Kernel compatibility.** Keep the existing `LINUX_VERSION_CODE` guards. Use only APIs that exist on 5.x and later: `kvmalloc`, `schedule_timeout_idle`, `vb2_is_busy`, `request_threaded_irq`, the `v4l2_*dv_timings*` helpers, `v4l2_src_change_event_subscribe`, `v4l2_ctrl_*`. Compile against every installed kernel's headers.
 - **Safety.**
-  - Keep the IOMMU translating. It currently contains stray DMA writes (stage 3.5).
+  - Keep the IOMMU translating. It currently contains stray DMA writes (stage 3.5), but only while the stray address is unmapped. The card sits behind the chipset in IOMMU group 22, together with the SATA, USB, Wi-Fi and both Ethernet controllers. All devices in a group share one DMA address space. A stray write that hits a writable mapping of one of them goes through and corrupts that device's data without a fault (see H.5).
   - Never test format changes during streaming on an unfixed driver.
   - Load a new build by rebooting after `dkms install`. `modprobe -r` can hang while PipeWire or WirePlumber hold the ALSA device.
 - **Rollback.** Copy the known-good ref's `src/` into `/usr/src/HwsUHDX1CaptureForLinux-1.0.0.230324/`, run `dkms build` and `dkms install --force`, then reboot.
@@ -74,6 +81,7 @@ Record these on the unmodified driver, with no other app using the card, in `doc
 | 2.4 | **Frame intervals and `S_PARM`.** List input/1 to input/4 as intervals. `S_PARM` picks the closest divisor per file handle and skips frames for that consumer. `G_PARM` reports the effective rate with `V4L2_CAP_TIMEPERFRAME`. |
 | 2.5 | **Picture controls.** Brightness, contrast, saturation and hue move to a `v4l2_ctrl_handler`, range 0–255, default 128. Changes write register `91 + 2·ch` as `sat<<24 \| hue<<16 \| con<<8 \| bri` and are re-applied after a hardware re-init. |
 | 2.6 | **Small fixes.** `bus_info` becomes `PCI:<pci_name>`. Fix the 720×576 table entry, which currently says 720×480. Drop `VB2_READ` and the `read()` stub. |
+| 2.7 | **Suspend and resume.** Found during stage 2 testing: after S3 the card's registers are wiped and capture stays dead until a reboot, because the driver has no PM callbacks. Suspend records and stops the running engines; resume replays the probe-time reset and `InitVideoSys()`, then restarts them. |
 
 **Done when:**
 - `v4l2-compliance` failures drop from the baseline.
@@ -82,19 +90,129 @@ Record these on the unmodified driver, with no other app using the card, in `doc
 - `--set-parm 30` on a 59.94 fps source streams at 29.97.
 - Picture controls visibly change the image, and register 91 reads back the values.
 - An existing OBS source keeps working.
+- After `systemctl suspend` and wake, capture resumes without a reboot.
 
 ## Stage 3: `rework/single-copy`
 
-This design will be refined after stages 1 and 2 have run for a while.
+This design will be refined after stages 1 and 2 have run for a while. Run probe 4.4 first: if the card can write frames straight into app buffers, the copy design below changes.
 
 - A threaded IRQ replaces the video tasklet and workqueue.
 - Each DMA half is copied straight into one buffer per consumer. A staging frame is used only for interlaced input or scaling.
 - The 16-slot queue goes away (72 MiB).
 - `remove()` and probe error paths are fixed, with MSI fallback, the correct `IRQF_SHARED` usage, and `alloc_ordered_workqueue`.
-- The stray DMA writes to IOVA `0xfec00000` at capture start and stop are diagnosed through debugfs (DMA addresses and register readbacks) and then fixed.
+- The stray DMA writes to IOVA `0xfec00000` at capture start and stop are diagnosed through debugfs (DMA addresses and register readbacks) and then fixed. This is a data-safety item, not log noise. Only the MSI window (0xfee00000–0xfeefffff) is reserved in the card's IOMMU group, so 0xfec00000 can be mapped for any device in it (see Ground rules). No faults since stage 1 doesn't prove a fix: a write that now lands on a mapped address leaves no fault.
 - A debugfs status file reports the input, the frame rate, per-consumer counters and IRQ counts.
 
 **Done when:** stage 1 and 2 checks still pass, each frame is copied once per consumer, and no `IO_PAGE_FAULT` occurs at capture start or stop.
+
+## Stage 4: hardware features and upstreaming
+
+The in-tree `hws` driver (`drivers/media/pci/hws`, built as `hws.ko` in this 7.2 kernel) supports AVMatrix's multi-channel cards but not this one. It shares this card's register layout, and several registers it documents hold live values here ([REGISTERS.md](REGISTERS.md)).
+- Items 4.1, 4.2 and 4.5 only read registers or change what the driver reports, so they can land before stage 3.
+- Items 4.3 and 4.4 write registers this driver never writes, so they start as probes under the rules below.
+- Item 4.8 needs no new registers.
+- Item 4.9 copies a register write and a pause the Windows driver makes.
+
+| # | Change |
+|---|---|
+| 4.1 | **HDCP status and blanking.** Register 8 has a bit per channel that is set while the source uses HDCP (0 with the Switch 2). The Windows driver doesn't deliver video while it is set; apps get a frame reading "HDCP Protection" instead. This driver never reads register 8, so it passes on whatever the card sends. Match the vendor:<br>- While the bit is set, deliver a blank frame instead of the video.<br>- Report `V4L2_IN_ST_NO_ACCESS` in `ENUMINPUT`.<br>- Show it in `log_status`, and log one line when it changes.<br><br>Test on the fixed driver only, with the PS5's HDCP setting on and off: with it on, apps get only blank frames. Nothing here goes past detecting HDCP and blanking. |
+| 4.2 | **Hardware frame rate.** Register 110 holds the input rate in whole fps (60 here). With no stream running, nothing is measured. The driver then reports either the last measured rate, which is stale if the source changed mode since, or a table value before the first stream.<br>- Use register 110 when there is no current measurement, or when the measurement differs from it by more than 1 fps.<br>- The measured interval still decides between 59.94 and 60.<br><br>The Windows driver reads register 110 as the input rate on FPGA 122 and later. First check that it follows the source while no stream runs. |
+| 4.3 | **Hardware scaler (probe).** Registers 120 and 130 read 1920×1080 and 60 here, although this driver never writes them and frames arrive at the input size. Mainline writes the requested size to register 120. On FPGA 122 and later, the Windows driver writes the app's requested size to 120 and rate to 130 on every status poll. But it still sizes the DMA from the input, scales on the CPU, and has no frame skipping of its own. So 120 likely doesn't change the delivered data, and 130 is the more promising half of the probe.<br><br>Probe, during a 4K stream:<br>1. Write 1920×1080 to register 120. Check whether the delivered data changes size (view a saved raw frame at a 1920-pixel stride).<br>2. Write 30 to register 130. Check whether the frame interrupts halve.<br><br>If either works, the driver uses it instead of the CPU scaler or frame skipping. A 1080p capture of a 4K source would then move a quarter of the data and spend no CPU on scaling. Only sizes up to the input size are written, since a smaller output can't overrun the buffers. |
+| 4.4 | **Zero-copy (probe).** Today every frame is copied twice: DMA buffer to queue slot, then slot to app buffer.<br><br>Mainline captures straight into app buffers. Before each frame, it reprograms the channel's address-table entry (BAR0 + 0x208 + 8·ch) and buffer address (register 16 + ch), and also writes register 26 + ch. On this card a frame arrives as four quarters through buffer registers 16–19. Register 26 falls in the audio-address range (24 + i), so it is not the video target here. The Windows driver has no zero-copy path either.<br><br>Probe: between frames, point registers 16–19 and their table entries at the four quarters of a test buffer. Check that the next frame lands there, and that the card picks up new addresses every frame.<br><br>If it does, stage 3 changes:<br>- The card writes into one consumer's buffer. The driver copies only for extra consumers and scaled sizes.<br>- Buffers become `dma-contig`. MMAP and DMABUF keep working; USERPTR falls back to copying. |
+| 4.5 | **Quantization.** With the Switch 2's RGB range on Automatic, Y spans 1–254, so the card delivered full range ([results.md](results.md)). Find out whether that is fixed or follows the source: repeat the measurement with the console's RGB range set to Limited and to Full, on the Switch 2 and the PS5.<br>- If the card always delivers full range, report `V4L2_QUANTIZATION_FULL_RANGE` with Rec. 709 encoding.<br>- If it follows the source, keep the default and document the OBS setting per console. Detecting the range then needs the AVI InfoFrame (stage 5). |
+| 4.6 | **Mainline support.** Add `8888:8581` to the in-tree `hws` driver so the card works without DKMS. The Windows driver serves 8888:8591, 8888:85A1, 1F33:8581 and 1F33:8591 with the same code, and the 8591 adds a line-in audio input. That needs:<br>- a single channel;<br>- 4K input in quarters;<br>- the audio ring;<br>- this card's version-register layout;<br>- the stage 1–3 fixes mainline lacks.<br><br>Build it out of tree from `drivers/media/pci/hws` first, and run the stage 1 and 2 checks against it. Sending patches to linux-media is public: only when asked. |
+| 4.7 | **Upstream the fork's branches** to GloriousEggroll's repo: one PR per topic, rebased on upstream `main`, crediting PR #23. Only when asked. |
+| 4.8 | **High refresh rates.** Retail listings give the input as up to 1440p144 and 1080p240, and the Windows driver offers capture modes up to 1440p144, 1080p240 and 720p240. When the display's EDID advertises 120 Hz, the PS5 offers 1080p and 1440p at 120 Hz, and the Switch 2 offers 120 Hz in some games.<br>1. Survey which modes each console offers through the card (PS5: Settings → Screen and Video → Video Output Information).<br>2. Capture each one and run `framecheck.py` for the delivered rate, unique frames and DV timings.<br>3. Fix what breaks, such as the timings cap, the size table or rate snapping.<br><br>These modes fit the link: 1440p144 in YUYV is about 1.06 GB/s, close to the 1.0 GB/s that 4K60 already moves. When playing through the OBS preview, a 120 Hz capture halves the frame time, if OBS runs at 120 fps and the monitor refreshes at 120 Hz or more. |
+| 4.9 | **Register 9 and the start pause.** On FPGA 122 and later, the Windows driver writes its 5 MiB buffer size to register 9, in 16-byte units. It also pauses 500 µs between the 0x80000000 and 0x80FFFFFF start writes to register 0. This driver does neither.<br>- Write this driver's buffer size to register 9 (4.5 MiB = 0x48000).<br>- Add the pause.<br>- Consider polling input status every 50 ms like the Windows driver (this driver uses 250 ms), so source changes are seen sooner. Each poll costs only a few register reads.<br><br>Then check that capture still works at every size, including 4096×2160. |
+
+### Probe rules
+
+- **Where probes run.** Probes that only change modes (4.3) run from a script (`tests/regprobe.py`) that maps BAR0 through sysfs (`resource0`). The released driver stays loaded, OBS is closed, and one `v4l2-ctl` stream observes. Probes that redirect DMA (4.4) run inside the driver, behind a debug-only module parameter that is off by default, because they need buffers the driver owns.
+- **What a probe writes.** Only the registers named for it. It reads each one first and restores it on exit, including after Ctrl-C.
+- **IOMMU.** A probe refuses to run unless the card's IOMMU domain is translated (`DMA` or `DMA-FQ`).
+- **DMA addresses.** They come only from buffers the driver allocated; none are computed or guessed. Each test buffer is followed by a guard area at least its own size, checked after the probe, so a mis-sized write lands in memory the driver owns.
+- **One probe per boot.** Reboot afterwards; loading the driver re-initialises the card.
+- **Records.** Record the probe, dmesg, the `IO_PAGE_FAULT` count and the framecheck output in `docs/results.md`. Record the outcome, positive or not, in `docs/REGISTERS.md`.
+- **Driver code** for a feature is written only after its probe works.
+
+**Done when:**
+- With the PS5's HDCP on, apps get only blank frames, and `--get-input` reports no access.
+- After the source changes mode with no stream running, `--query-dv-timings` reports the new rate.
+- Probes 4.3 and 4.4 are recorded, and features are built only on a positive result.
+- The format reports the quantization the range test found.
+- Every mode a console offers through the card captures at its full rate, or the limit is documented.
+
+## Stage 5: interface discovery by reverse engineering
+
+This stage needs vendor binaries that aren't public. AVMatrix publishes no SDK or firmware. The only Windows driver listing found is on a third-party site (`vc12-4k.inf`, version 6.0.0.4, December 2024). The goal is a register map complete enough to decide which other features the hardware has. Nothing in this stage modifies the card.
+
+**Status (2026-10-19): the Windows driver is done.** AVMatrix's current Windows driver (6.0.0.4, 2026-03-17) has been analysed, and [REGISTERS.md](REGISTERS.md#windows-driver) has the results.
+- It produced stage 4.1's blanking, 4.9, and confirmations for 4.2, 4.3, 4.4 and 4.8.
+- It touches no registers beyond those listed, and has no EDID, I²C, InfoFrame, HDR, audio-format or temperature access.
+- So the vendor driver offers no route to the EDID, InfoFrame, audio-format and status candidates below. Only the receiver chip's datasheet or a firmware image could.
+- What remains is PCB photos and, if one turns up, a firmware image.
+
+**Why the Windows driver first.**
+- The card is driven only through BAR0 registers and DMA, so the vendor's Windows driver is the fullest record of what the registers do.
+- This driver descends from it ([REGISTERS.md](REGISTERS.md#vendor-ancestry)), so its functions should map onto ours closely.
+- It is an ordinary x64 PE file, which Ghidra handles well.
+
+| Input | Where from | What it can show |
+|---|---|---|
+| Windows driver package (`.inf`, `.sys`, any DLLs or utilities) | AVMatrix support. Third-party copies only to compare hashes. | Every register access and its purpose:<br>- property handlers for picture, HDCP, EDID, scaling, deinterlacing and colour<br>- I²C access to the HDMI receiver<br>- audio sample-rate handling<br>- version and update paths |
+| Vendor tools (capture utility, firmware updater) | AVMatrix support | The flash layout and update protocol. Updaters often contain the firmware image. |
+| PCB photos, both sides, heatsink off | The card | Part numbers for the FPGA, HDMI receiver, loop-out splitter and flash. Their datasheets bound what is possible. |
+| Firmware image | An updater, or a read-only flash dump as a last resort | The EDID, any receiver or soft-CPU firmware, and the exact FPGA part from the bitstream |
+
+**Method.**
+1. Unpack packages on Linux without installing or running them, into an empty directory, and treat the contents as untrusted.
+2. Analyse them statically with Ghidra (`rea`). Find the BAR0 accessors and list every offset read or written, with its caller. Name the callers from strings and property tables, and match them to this driver's functions.
+3. Write the results into `docs/REGISTERS.md`: register, access, meaning, evidence (vendor function, mainline or measurement) and confidence.
+4. Confirm on the card, read-only. A debug-only debugfs file dumps the registers the vendor driver reads, and only those, because reading an unknown register can have side effects.
+5. Turn each feature found into a numbered item with a probe and checks, as in stage 4.
+
+**Candidates.** Each needs evidence before work starts.
+- **EDID.** Read it (`G_EDID`). If it lives in RAM rather than flash, let users load their own (`S_EDID`), for example to offer or hide 120 Hz, HDR or multichannel audio. An EDID stored in flash is out of scope.
+- **InfoFrames.**
+  - AVI quantization and colorimetry, for correct format reporting (4.5).
+  - HDR detection from the Dynamic Range and Mastering InfoFrame, to report BT.2020/PQ or warn.
+  - Content type (`V4L2_CID_DV_RX_IT_CONTENT_TYPE`).
+- **Exact timings.** Pixel clock and blanking for `QUERY_DV_TIMINGS`, instead of presets or synthesized timings. Also 59.94 vs 60 without measuring.
+- **Audio format.** Sample rate and channel count. The driver assumes 48 kHz stereo, so a 44.1 kHz source would play at the wrong speed if the card doesn't resample. Multichannel LPCM, if the card carries it.
+- **Output modes.** Mainline describes register 0's start value (0x13) as selecting "YUYV/BT.709/etc". Other values may select the colour matrix, the range or another pixel format. Register 88 shows no YV12 support on this card.
+- **Processing blocks.** A scaler, deinterlacer or frame-rate converter, if probe 4.3 is inconclusive.
+- **Status.** Firmware build, HDCP version (status only), FPGA temperature.
+
+**What it can't do.**
+- Add hardware the card lacks. If the FPGA has no scaler, no register creates one.
+- Exceed the link. 4K60 in YUYV already uses about 1 GB/s of the roughly 1.6 GB/s that PCIe 2.0 x4 carries in practice, so 4K120 (about 2 GB/s) can't fit.
+- Anything with HDCP beyond reading its status.
+
+**Firmware images.** If one turns up:
+- Strings, version stamps and the EDID (which starts with `00 FF FF FF FF FF FF 00`) come out quickly.
+- A 4K60 HDMI 2.0 input usually needs a dedicated receiver chip. Many have a small microcontroller whose firmware and EDID live in flash. That code is small and readable.
+- The FPGA bitstream names the exact part. Turning a bitstream back into logic is research-level work, even for parts with open bitstream documentation, and isn't worth it for register discovery.
+
+**Boundaries.**
+- Interoperability only, on a card the user owns. Check the vendor's license terms first.
+- Nothing vendor-owned goes in the repo: no binaries, firmware, disassembly or copied code. `REGISTERS.md` describes behaviour in our own words and cites evidence by function or address.
+- HDCP: read status only. Nothing that disables, strips or works around HDCP is researched, documented or built.
+- No writes to the card's flash: no firmware updates and no modified bitstreams. A flash dump, if ever needed, is read-only, from an unpowered card, with a 3.3 V programmer.
+- Vendor binaries are analysed, never run.
+
+**Done when:** `REGISTERS.md` covers every register the vendor driver uses, with meaning and confidence, and each candidate has a go or no-go with its evidence. Go items become numbered items with probes.
+
+## Host integration
+
+These items live outside the driver, in the user's setup or as helper scripts in `tools/`.
+
+| # | Item |
+|---|---|
+| H.1 | **OBS source settings.** All three are already set on this machine:<br>- Use Buffering off, for the lowest latency when playing through the preview.<br>- Color Range Full, to match the measured output (4.5).<br>- DV Timing "Leave Unchanged", so the driver's live timings apply. |
+| H.2 | **IRQ placement.** The card's interrupt (IRQ 202 this boot, named `0000:0b:00.0`) runs on CPU 4. That CPU is on the 9950X3D's V-cache CCD (CPUs 0–7 and 16–23, 96 MiB L3), where games run best.<br>- The tasklet copy runs on that CPU. The worker is woken from it and usually runs on the same CCD.<br>- At 4K60 that is two copies of about 1 GB/s each through the game CCD's cache.<br><br>Ban the IRQ from irqbalance (a policy script matching the card's PCI address) and pin it to the other CCD (CPUs 8–15 and 24–31). This only matters when a PC game runs while the card captures. After 3.1, the threaded handler follows the IRQ's affinity. |
+| H.3 | **OBS follows the input.** When the console changes resolution, the driver raises a source-change event. OBS keeps the old format until the source reopens, and the CPU scaler fills the gap.<br><br>A user service (`tools/obs-follow-input`) waits for the event and makes OBS reopen the source through obs-websocket, which is built into OBS 28 and later. OBS restarts a V4L2 source when one of its settings changes, so the helper writes the new input size into the source's settings. Check that OBS then picks up the new size before relying on it. |
+| H.4 | **DKMS builds for every kernel.** 7.2.10 has the current build (srcversion `1DD79E96…`). 7.2.6 and 7.2.9 still have one from before this work (`7E1B27D9…`), so picking an older kernel at boot brings back the audio crackle and the ioctl deadlock.<br>1. Give each build its own DKMS version (for example `1.0.0.230324.g<commit>`) instead of overwriting the 1.0.0.230324 source.<br>2. Install it for every kernel with headers.<br>3. Remove old versions once a reboot confirms the new one.<br><br>`dkms status` then shows what each kernel has, and rollback is `dkms install` of the previous version. AUTOINSTALL is already on, so new kernels get the current build. |
+| H.5 | **Slot and IOMMU group (optional).** The card is in a chipset slot, in IOMMU group 22 with the SATA, USB, Wi-Fi and Ethernet controllers. A CPU-attached slot would give it a group of its own, so a DMA mistake could reach only its own buffers. On most boards the second CPU-attached x16 slot takes 8 lanes from the GPU, so check the ProArt X870E-Creator manual first. If it costs GPU lanes, leave the card where it is; 3.5 is the real fix either way. |
 
 ## Build and test loop
 

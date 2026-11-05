@@ -27,6 +27,11 @@ static int StartAudioCapture(struct hws_pcie_dev *pdx,int index);
 static void StopAudioCapture(struct hws_pcie_dev *pdx,int index);
 static void StopVideoCapture(struct hws_pcie_dev *pdx,int index);
 static void InitVideoSys(struct hws_pcie_dev *pdx,int set);
+static bool hws_input_timeperframe(struct hws_pcie_dev *pdx, int ch, struct v4l2_fract *tpf);
+static void WRITE_REGISTER_ULONG(struct hws_pcie_dev *pdx,u32 RegisterOffset,u32 Value);
+static u32 READ_REGISTER_ULONG(struct hws_pcie_dev *pdx,u32 RegisterOffset);
+static bool hws_any_queue_busy(struct hws_video *videodev);
+static void hws_check_source_change(struct hws_video *videodev);
 
 //------------------------
 
@@ -73,7 +78,7 @@ static const v4l2_model_timing_t support_videofmt[]= {
 	[V4L2_MODEL_VIDEOFORMAT_3840X2160P60]	 = V4L2_MODEL_TIMING(3840,2160,60,0),
 	[V4L2_MODEL_VIDEOFORMAT_1280X720P60]	= V4L2_MODEL_TIMING(1280,720,60,0),
 	[V4L2_MODEL_VIDEOFORMAT_720X480P60]		= V4L2_MODEL_TIMING(720,480,60,0),
-	[V4L2_MODEL_VIDEOFORMAT_720X576P50]		= V4L2_MODEL_TIMING(720,480,50,0),
+	[V4L2_MODEL_VIDEOFORMAT_720X576P50]		= V4L2_MODEL_TIMING(720,576,50,0),
 	[V4L2_MODEL_VIDEOFORMAT_800X600P60]		= V4L2_MODEL_TIMING(800,600,60,0),
 	[V4L2_MODEL_VIDEOFORMAT_1024X768P60]	= V4L2_MODEL_TIMING(1024,768,60,0),
 	[V4L2_MODEL_VIDEOFORMAT_1280X768P60]	= V4L2_MODEL_TIMING(1280,768,60,0),
@@ -195,14 +200,15 @@ static const int framegrabber_support_refreshrate[]= {
 #define NUM_FRAMERATE_CONTROLS (ARRAY_SIZE(framegrabber_support_refreshrate))
 
 //-------------------------------------------
-static int  v4l2_model_get_support_framerate(int index)
+
+static int v4l2_get_suport_VideoFormatIndex_wh(int w, int h)
 {
-	if(index <0 ||index >=NUM_FRAMERATE_CONTROLS)
-		return -1;
-
-	return (framegrabber_support_refreshrate[index]);
+	int index;
+	for(index=0; index<V4L2_MODEL_VIDEOFORMAT_NUM;index++)
+		if(w==support_videofmt[index].frame_size.width && h==support_videofmt[index].frame_size.height)
+			return index;
+	return -1;
 }
-
 static int v4l2_get_suport_VideoFormatIndex(struct v4l2_format *fmt)
 {
 	struct v4l2_pix_format *pix = &fmt->fmt.pix;
@@ -262,7 +268,8 @@ static int hws_vidioc_querycap(struct file *file, void *priv, struct v4l2_capabi
 	//printk( "%s\n", __func__);
 	strcpy(cap->driver, KBUILD_MODNAME);
 	sprintf(cap->card, "%s %d",HWS_VIDEO_NAME,vi_index);
-	strcpy(cap->bus_info, "HWS");
+	/* unique per card, so apps can tell two cards apart */
+	snprintf(cap->bus_info, sizeof(cap->bus_info), "PCI:%s", pci_name(dev->pdev));
 	cap->device_caps =	V4L2_CAP_VIDEO_CAPTURE |V4L2_CAP_STREAMING;
 	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
 	//printk( "%s(IN END  )\n", __func__);
@@ -315,33 +322,34 @@ const framegrabber_pixfmt_t *framegrabber_g_out_pixelfmt(struct hws_video *dev)
 {
 	return &support_pixfmts[dev->current_out_pixfmt];
 }
-static int hws_vidioc_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *fmt)
+/*
+ * The input as the card sees it now, read straight from the status registers
+ * and clamped like Get_Video_Status(). Interlaced fields are line-doubled into
+ * frames, so the height reported is the delivered frame height. False when
+ * there is no signal or the size is unusable.
+ */
+static bool hws_read_input(struct hws_pcie_dev *pdx, int ch, int *w, int *h, int *interlace)
 {
-	struct hws_video *videodev = video_drvdata(file);
-	//struct v4l2_pix_format *pix = &fmt->fmt.pix;
-	const framegrabber_pixfmt_t *pixfmt;
-	v4l2_model_timing_t *p_SupportmodeTiming;
-	//printk( "%s(%d)\n", __func__,videodev->index);
-	//printk( "w=%d,h=%d\n",fmt->fmt.pix.width,fmt->fmt.pix.height);
-	pixfmt=framegrabber_g_out_pixelfmt(videodev);
-	if(pixfmt)
-	{
-		//framegrabber_g_Curr_input_framesize(videodev,&width,&height);
-		p_SupportmodeTiming = v4l2_model_get_support_videoformat(videodev->current_out_size_index);
-		if(p_SupportmodeTiming ==NULL) return -EINVAL;
-		fmt->fmt.pix.width=p_SupportmodeTiming->frame_size.width;
-		fmt->fmt.pix.height=p_SupportmodeTiming->frame_size.height;
-		fmt->fmt.pix.field=V4L2_FIELD_NONE; //Field
-		fmt->fmt.pix.pixelformat  = pixfmt->fourcc;
-		fmt->fmt.pix.bytesperline = (fmt->fmt.pix.width * pixfmt->depth) >> 3;
-		fmt->fmt.pix.sizeimage =	fmt->fmt.pix.height * fmt->fmt.pix.bytesperline;
-		fmt->fmt.pix.colorspace = V4L2_COLORSPACE_REC709;
-		//printk("%s....f->fmt.pix.width=%d.f->fmt.pix.height=%d.\n",__func__,fmt->fmt.pix.width,fmt->fmt.pix.height);
-		return 0;
-	}
+	u32 st, res;
 
-	return -EINVAL;
+	if (pdx->m_PciDeviceLost)
+		return false;
+	st = READ_REGISTER_ULONG(pdx, CVBS_IN_BASE + 5 * PCIE_BARADDROFSIZE);
+	if (st == 0xFFFFFFFF || !((st >> ch) & 1))
+		return false;
+	*interlace = (st >> (8 + ch)) & 1;
+	res = READ_REGISTER_ULONG(pdx, CVBS_IN_BASE + (90 + ch * 2) * PCIE_BARADDROFSIZE);
+	*w = res & 0xFFFF;
+	*h = (res >> 16) & 0xFFFF;
+	if (*w > pdx->m_MaxInputWidth)
+		*w = pdx->m_MaxInputWidth;
+	if (pdx->m_DeviceHW_Version == 0 && *h > 2160)
+		*h = 2160;
+	if (*interlace)
+		*h *= 2;
+	return *w >= 320 && *h >= 240 && *w <= MAX_VIDEO_HW_W && *h <= MAX_VIDEO_HW_H && !(*w & 1);
 }
+
 static v4l2_model_timing_t *Get_input_framesizeIndex(int width,int height)
 {
 	int i;
@@ -355,67 +363,51 @@ static v4l2_model_timing_t *Get_input_framesizeIndex(int width,int height)
 	return NULL;
 }
 
+/* A size the driver can deliver: the live input size, or a table size the CPU scaler produces. */
+static bool hws_size_supported(struct hws_video *videodev, int w, int h)
+{
+	int nw, nh, il;
+
+	if (Get_input_framesizeIndex(w, h))
+		return true;
+	return hws_read_input(videodev->dev, videodev->index, &nw, &nh, &il) && w == nw && h == nh;
+}
+
+static void hws_fill_pix(struct v4l2_pix_format *pix, const framegrabber_pixfmt_t *fmt)
+{
+	pix->field = V4L2_FIELD_NONE;
+	pix->pixelformat = fmt->fourcc;
+	pix->bytesperline = (pix->width * fmt->depth) >> 3;
+	pix->sizeimage = pix->height * pix->bytesperline;
+	pix->colorspace = V4L2_COLORSPACE_REC709;
+	pix->priv = 0;
+}
+
+static int hws_vidioc_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *fmt)
+{
+	struct hws_video *videodev = video_drvdata(file);
+
+	fmt->fmt.pix.width = videodev->current_out_width;
+	fmt->fmt.pix.height = videodev->curren_out_height;
+	hws_fill_pix(&fmt->fmt.pix, framegrabber_g_out_pixelfmt(videodev));
+	return 0;
+}
+
 static int hws_vidioc_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f)
 {
 	struct hws_video *videodev = video_drvdata(file);
-	v4l2_model_timing_t *pModeTiming;
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	const framegrabber_pixfmt_t *fmt;
-	//int TimeingIndex = f->index;
-	//printk( "%s(%d)\n", __func__,videodev->index);
-	//printk( "pix->height =%d  pix->width =%d \n", pix->height,pix->width);
-    if (pix->pixelformat == 0) {
-        if (framegrabber_g_support_pixelfmt_by_fourcc(videodev->pixfmt))
-            pix->pixelformat = videodev->pixfmt;
-        else
-            pix->pixelformat = V4L2_PIX_FMT_YUYV;
-    }
 
 	fmt = framegrabber_g_support_pixelfmt_by_fourcc(pix->pixelformat);
-	if(!fmt)
-	{
-        pix->pixelformat = V4L2_PIX_FMT_YUYV;
-        fmt = framegrabber_g_support_pixelfmt_by_fourcc(pix->pixelformat);
-        if (!fmt) {
-            printk("%s.. format not support (even fallback)\n", __func__);
-            return -EINVAL;
-        }
+	if (!fmt)
+		fmt = framegrabber_g_support_pixelfmt_by_fourcc(V4L2_PIX_FMT_YUYV);
+	/* anything else, including 0 and -1 sizes, gets the current format */
+	if (!hws_size_supported(videodev, pix->width, pix->height)) {
+		pix->width = videodev->current_out_width;
+		pix->height = videodev->curren_out_height;
 	}
-	if (pix->width == 0 || pix->height == 0) {
-        pModeTiming = v4l2_model_get_support_videoformat(videodev->current_out_size_index);
-        if (!pModeTiming) return -EINVAL;
-        pix->width  = pModeTiming->frame_size.width;
-        pix->height = pModeTiming->frame_size.height;
-    }
-	pModeTiming = Get_input_framesizeIndex(pix->width,pix->height);
-	if(!pModeTiming)
-	{
-		printk("%s.. format2 not support  %dX%d\n",__func__,pix->width,pix->height);
-		pModeTiming = v4l2_model_get_support_videoformat(videodev->current_out_size_index);
-		if(pModeTiming ==NULL) return -EINVAL;
-		pix->field = V4L2_FIELD_NONE;
-		pix->width=pModeTiming->frame_size.width;
-		pix->height=pModeTiming->frame_size.height;
-		pix->bytesperline = (pix->width * fmt->depth) >> 3;
-		pix->sizeimage =pix->height * pix->bytesperline;
-		pix->colorspace = V4L2_COLORSPACE_REC709;//V4L2_COLORSPACE_SMPTE170M;
-		pix->priv = 0;
-		//return -EINVAL;
-		return 0;
-	}
-	pix->field = V4L2_FIELD_NONE;
-	pix->width=pModeTiming->frame_size.width;
-	pix->height=pModeTiming->frame_size.height;
-	pix->bytesperline = (pix->width * fmt->depth) >> 3;
-	pix->sizeimage =pix->height * pix->bytesperline;
-	pix->colorspace = V4L2_COLORSPACE_REC709;//V4L2_COLORSPACE_SMPTE170M;
-	pix->priv = 0;
-
-	//printk("%s<<pix->width=%d.pix->height=%d.\n",__func__,pix->width,pix->height);
-	return 0;
-
-
-	//----------------------------------
+	hws_fill_pix(pix, fmt);
 	return 0;
 }
 /*
@@ -452,8 +444,7 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,struct v4l2_format
     if (err)
         return err;
 
-	nVideoFmtIndex = v4l2_get_suport_VideoFormatIndex(f);
-	if(nVideoFmtIndex ==-1) return -EINVAL;
+	nVideoFmtIndex = v4l2_get_suport_VideoFormatIndex(f);	/* -1 for a native-only size */
 
 	if ((f->fmt.pix.width != videodev->current_out_width ||
 	     f->fmt.pix.height != videodev->curren_out_height ||
@@ -469,106 +460,70 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,struct v4l2_format
 	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
 	return 0;
 }
-static int hws_vidioc_g_std(struct file *file, void *priv, v4l2_std_id *tvnorms)
-{
-	struct hws_video *videodev = video_drvdata(file);
-	//printk( "%s()\n", __func__);
-	*tvnorms = videodev->std;
-	return 0;
-}
 
-static int hws_vidioc_s_std(struct file *file, void *priv,v4l2_std_id tvnorms)
-{
-	struct hws_video *videodev = video_drvdata(file);
-	//printk( "%s()\n", __func__);
-	videodev->std = tvnorms;
-	return 0;
-}
-
-int hws_vidioc_g_parm(struct file *file,void *fh, struct v4l2_streamparm *setfps)
-{
-	struct hws_video *videodev = video_drvdata(file);
-	v4l2_model_timing_t *p_SupportmodeTiming;
-
-	//printk( "%s(%d) Frame Rate =%d \n", __func__, videodev->index,io_frame_rate);
-	if (setfps->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-	{
-		printk("%s..\n",__func__);
-		return -EINVAL;
-	}
-	p_SupportmodeTiming = v4l2_model_get_support_videoformat(videodev->current_out_size_index);
-	if(p_SupportmodeTiming ==NULL) return -EINVAL;
-	setfps->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	setfps->parm.capture.timeperframe.numerator=1000;
-	setfps->parm.capture.timeperframe.denominator=p_SupportmodeTiming->refresh_rate*1000;
-	//printk( "%s fps =%d \n", __func__, p_SupportmodeTiming->refresh_rate);
-	return 0;
-}
+/*
+ * The live input size comes first (it needs no scaling), then the table sizes
+ * the CPU scaler can produce, without repeating the input size.
+ */
 static int hws_vidioc_enum_framesizes(struct file *file, void *fh, struct v4l2_frmsizeenum *fsize)
 {
-	//struct hws_video *videodev = video_drvdata(file);
+	struct hws_video *videodev = video_drvdata(file);
+	struct hws_pcie_dev *pdx = videodev->dev;
 	const framegrabber_pixfmt_t *pixfmt;
-	v4l2_model_timing_t *p_SupportmodeTiming;
-	int width=0,height=0;
-	int frameRate;
-	//printk( "%s(%d)-FrameIndex=[%d]\n", __func__,videodev->index,fsize->index);
-	//----------------------------
-	pixfmt=framegrabber_g_support_pixelfmt_by_fourcc(fsize->pixel_format);
-	if(pixfmt==NULL)
-	{
-		//printk("%s..\n",__func__);
-		return -EINVAL;
-	}
-	p_SupportmodeTiming = v4l2_model_get_support_videoformat(fsize->index);
-	if(p_SupportmodeTiming == NULL)
-	{
-		//printk("%s. invalid framesize[%d]\n",__func__,fsize->index);
-		return -EINVAL;
-	}
-	width = p_SupportmodeTiming->frame_size.width;
-	height = p_SupportmodeTiming->frame_size.height;
-	frameRate = p_SupportmodeTiming->refresh_rate;
+	int nw = 0, nh = 0, il, i;
+	u32 idx = fsize->index;
+	bool native;
 
-	//printk("%s...supportframesize[%d] width=%d height=%d Framerate=%d..\n",__func__,fsize->index,width,height,frameRate); //12
-	if((width ==0) || (height ==0))
-	{
-		//printk("%s. invalid framesize 2\n",__func__);
+	pixfmt = framegrabber_g_support_pixelfmt_by_fourcc(fsize->pixel_format);
+	if (!pixfmt)
 		return -EINVAL;
+	native = hws_read_input(pdx, videodev->index, &nw, &nh, &il);
+	if (native) {
+		if (idx == 0) {
+			fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;
+			fsize->discrete.width = nw;
+			fsize->discrete.height = nh;
+			return 0;
+		}
+		idx--;
 	}
-	fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;
-	fsize->pixel_format=pixfmt->fourcc;
-	fsize->discrete.width=width;
-	fsize->discrete.height=height;
-	//fsize->discrete.denominator = frameRate;
-	//fsize->discrete..numerator =1 ;
-	//-------------------------------
-	//width = videodev->current_out_width;
-	//height = videodev->curren_out_height;
-	//fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;
-	//fsize->pixel_format=videodev->pixfmt;
-	//fsize->discrete.width=width;
-	//fsize->discrete.height=height;
-	return 0;
-
-
+	for (i = 0; i < V4L2_MODEL_VIDEOFORMAT_NUM; i++) {
+		const struct frame_size *fs = &support_videofmt[i].frame_size;
+		if (native && fs->width == nw && fs->height == nh)
+			continue;
+		if (fs->width > pdx->m_MaxInputWidth)
+			continue;
+		if (idx-- == 0) {
+			fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;
+			fsize->discrete.width = fs->width;
+			fsize->discrete.height = fs->height;
+			return 0;
+		}
+	}
+	return -EINVAL;
 }
 
 static int hws_vidioc_enum_input(struct file *file, void *priv,struct v4l2_input *i)
 {
-	//struct hws_video *videodev = video_drvdata(file);
-	int Index;
-	Index = i->index;
-	//printk( "%s(%d)-%d Index =%d \n", __func__,videodev->index,i->index,Index);
-	if(Index >0)
-	{
-		return   -EINVAL;
-	}
-	i->type = V4L2_INPUT_TYPE_CAMERA;
-	strcpy(i->name, KBUILD_MODNAME);
-	i->std = V4L2_STD_NTSC_M;
-	i->capabilities = 0;
-	i->status=0;
+	struct hws_video *videodev = video_drvdata(file);
+	struct hws_pcie_dev *pdx = videodev->dev;
+	int w, h, il;
+	u32 st;
 
+	if (i->index > 0)
+		return -EINVAL;
+	i->type = V4L2_INPUT_TYPE_CAMERA;
+	strscpy(i->name, "HDMI", sizeof(i->name));
+	i->std = 0;
+	i->capabilities = V4L2_IN_CAP_DV_TIMINGS;
+	i->status = 0;
+	if (!hws_read_input(pdx, videodev->index, &w, &h, &il)) {
+		st = pdx->m_PciDeviceLost ? 0 :
+		     READ_REGISTER_ULONG(pdx, CVBS_IN_BASE + 5 * PCIE_BARADDROFSIZE);
+		/* active but unusable (too large, odd width) reads as no sync */
+		i->status = (st != 0xFFFFFFFF && ((st >> videodev->index) & 1)) ?
+			    V4L2_IN_ST_NO_SYNC : V4L2_IN_ST_NO_SIGNAL;
+	}
 	return 0;
 }
 
@@ -622,18 +577,6 @@ printk( "%s(%d)- %dx%d \n", __func__,i,videodev->current_out_width,videodev->cur
 //printk( "%s(%d)\n", __func__,i);
 return i ? -EINVAL : 0;
 }
-static int vidioc_log_status(struct file *file, void *priv)
-{
-	//printk( "%s()\n", __func__);
-	return 0;
-}
-
-static ssize_t hws_read(struct file *file,char *buf,size_t count, loff_t *ppos)
-{
-	//printk( "%s()\n", __func__);
-	return -1;
-
-}
 
 static inline struct hws_vfh_ctx *hws_ctx_from_file(struct file *file)
 {
@@ -663,6 +606,8 @@ static int hws_open(struct file *file)
     ctx->streaming = false;
     atomic_set(&ctx->inflight, 0);
     init_waitqueue_head(&ctx->inflight_wq);
+    ctx->decimate = 1;
+    ctx->next_seq = 0;
 
     /* v4l2 file-handle */
     v4l2_fh_init(&ctx->fh, &videodev->vdev);
@@ -677,7 +622,7 @@ static int hws_open(struct file *file)
     q = &ctx->vbq;
     memset(q, 0, sizeof(*q));
     q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    q->io_modes = VB2_READ | VB2_MMAP | VB2_USERPTR;
+    q->io_modes = VB2_MMAP | VB2_USERPTR;	/* read() was never implemented */
     q->gfp_flags = GFP_KERNEL | __GFP_ZERO;//GFP_DMA32;
     q->drv_priv = ctx;
     q->buf_struct_size = sizeof(struct hwsvideo_buffer);
@@ -705,6 +650,18 @@ static int hws_open(struct file *file)
         file->private_data = NULL;
         return ret;
     }
+    /* the first app to open an idle device starts at the input's own size */
+    if (videodev->fileindex == 0 && !atomic_read(&videodev->engine_users) &&
+        !hws_any_queue_busy(videodev)) {
+        int nw, nh, il;
+        if (hws_read_input(pdx, videodev->index, &nw, &nh, &il)) {
+            spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
+            videodev->current_out_width = nw;
+            videodev->curren_out_height = nh;
+            videodev->current_out_size_index = v4l2_get_suport_VideoFormatIndex_wh(nw, nh);
+            spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
+        }
+    }
     spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
     videodev->fileindex++;
     spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
@@ -730,10 +687,6 @@ static int hws_release(struct file *file)
     ctx = hws_ctx_from_file(file);
     videodev = ctx->video;
     pdx = videodev->dev;
-    spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
-    if (videodev->fileindex > 0)
-        videodev->fileindex--;
-    spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
 
     /* remove from consumers */
     spin_lock_irqsave(&videodev->consumers_lock, flags);
@@ -744,6 +697,17 @@ static int hws_release(struct file *file)
     mutex_lock(&ctx->qmutex);
     vb2_queue_release(&ctx->vbq);
     mutex_unlock(&ctx->qmutex);
+
+    /*
+     * Count the handle as closed only after its queue is gone. Otherwise a
+     * new process can open while this one is closing, see no other handle,
+     * reset the format to the input's size, and then get -EBUSY from S_FMT
+     * because this leftover queue still holds buffers.
+     */
+    spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
+    if (videodev->fileindex > 0)
+        videodev->fileindex--;
+    spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
 
     /* v4l2 fh cleanup */
 	#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0))
@@ -759,514 +723,62 @@ static int hws_release(struct file *file)
 }
 
 //-------------------
-static const struct v4l2_queryctrl g_no_ctrl = {
-	.name  = "42",
-	.flags = V4L2_CTRL_FLAG_DISABLED,
-};
-static struct v4l2_queryctrl g_hws_ctrls[] =
-{
-	#if 1
-	{
-		V4L2_CID_BRIGHTNESS,           //id
-		V4L2_CTRL_TYPE_INTEGER,        //type
-		"Brightness",                  //name[32]
-		MIN_VAMP_BRIGHTNESS_UNITS,     //minimum
-		MAX_VAMP_BRIGHTNESS_UNITS,     //maximum
-		1,                             //step
-		BrightnessDefault,             //default_value
-		0,                             //flags
-		{ 0, 0 },                      //reserved[2]
-	},
-	{
-		V4L2_CID_CONTRAST,             //id
-		V4L2_CTRL_TYPE_INTEGER,        //type
-		"Contrast",                    //name[32]
-		MIN_VAMP_CONTRAST_UNITS,       //minimum
-		MAX_VAMP_CONTRAST_UNITS,       //maximum
-		1,                             //step
-		ContrastDefault,               //default_value
-		0,                             //flags
-		{ 0, 0 },                      //reserved[2]
-	},
-	{
-		V4L2_CID_SATURATION,           //id
-		V4L2_CTRL_TYPE_INTEGER,        //type
-		"Saturation",                  //name[32]
-		MIN_VAMP_SATURATION_UNITS,     //minimum
-		MAX_VAMP_SATURATION_UNITS,     //maximum
-		1,                             //step
-		SaturationDefault,             //default_value
-		0,                             //flags
-		{ 0, 0 },                      //reserved[2]
-	},
-	{
-		V4L2_CID_HUE,                  //id
-		V4L2_CTRL_TYPE_INTEGER,        //type
-		"Hue",                         //name[32]
-		MIN_VAMP_HUE_UNITS,            //minimum
-		MAX_VAMP_HUE_UNITS,            //maximum
-		1,                             //step
-		HueDefault,                    //default_value
-		0,                             //flags
-		{ 0, 0 },                      //reserved[2]
-	},
-	#endif
-	#if 0
-	{
-	V4L2_CID_AUTOGAIN,           //id
-	V4L2_CTRL_TYPE_INTEGER,        //type
-	"Hdcp enable",                 //name[32]
-	0,                             //minimum
-	1,                             //maximum
-	1,                             //step
-	0,                             //default_value
-	0,                             //flags
-	{ 0, 0 },                      //reserved[2]
-},
-{
-V4L2_CID_GAIN,           //id
-V4L2_CTRL_TYPE_INTEGER,        //type
-"Sample rate",                        //name[32]
-48000,                             //minimum
-48000,                             //maximum
-1,                             //step
-48000,                             //default_value
-0,                             //flags
-{ 0, 0 },                      //reserved[2]
-}
-#endif
-};
+/*
+ * Picture controls, applied by the card. Register 91 + 2*ch holds
+ * saturation, hue, contrast and brightness, one byte each (format from the
+ * vendor's commented-out code; it reads 0x80808080 at power-up). The control
+ * framework handles QUERYCTRL, G/S_(EXT_)CTRLS and control events.
+ *
+ * Writing the hue byte has no visible effect on HDMI input (tested on FPGA
+ * version 122; the register family comes from the vendor's analog capture
+ * designs), so there is no hue control and the byte stays at its neutral 128.
+ */
+#define HWS_PICTURE_REG(ch)	(CVBS_IN_BASE + (91 + 2 * (ch)) * PCIE_BARADDROFSIZE)
 
-#define ARRAY_SIZE_OF_CTRL		(sizeof(g_hws_ctrls)/sizeof(g_hws_ctrls[0]))
-
-static struct v4l2_queryctrl *find_ctrlByIndex(unsigned int index)
+static int hws_s_ctrl(struct v4l2_ctrl *ctrl)
 {
-	//scan supported queryctrl table
-	if(index>=ARRAY_SIZE_OF_CTRL)
-	{
-		return NULL;
-	}
-	else
-	{
-		return &g_hws_ctrls[index];
-	}
-}
+	struct hws_video *videodev = container_of(ctrl->handler, struct hws_video, ctrl_hdl);
+	u32 v = ((u32)videodev->ctrl_saturation->val << 24) |
+		((u32)HueDefault << 16) |
+		((u32)videodev->ctrl_contrast->val << 8) |
+		(u32)videodev->ctrl_brightness->val;
 
-static struct v4l2_queryctrl *find_ctrl(unsigned int id)
-{
-	int i;
-	//scan supported queryctrl table
-	for( i=0; i<ARRAY_SIZE_OF_CTRL; i++ )
-		if(g_hws_ctrls[i].id==id)
-			return &g_hws_ctrls[i];
-
+	/* the cluster sets all three together; write once per change */
+	videodev->m_PictureReg = v;
+	if (!videodev->dev->m_PciDeviceLost)
+		WRITE_REGISTER_ULONG(videodev->dev, HWS_PICTURE_REG(videodev->index), v);
 	return 0;
 }
-//-----------------------------
 
-static struct v4l2_query_ext_ctrl g_hws_ext_ctrls[] = {
-    {
-        .id = V4L2_CID_BRIGHTNESS,
-        .type = V4L2_CTRL_TYPE_INTEGER,
-        .name = "Brightness",
-        .minimum = MIN_VAMP_BRIGHTNESS_UNITS,
-        .maximum = MAX_VAMP_BRIGHTNESS_UNITS,
-        .step = 1,
-        .default_value = BrightnessDefault,
-        .flags = 0,
-        .elem_size = sizeof(s32),
-        .dims = {0},
-        .nr_of_dims = 0,
-    },
-    {
-        .id = V4L2_CID_CONTRAST,
-        .type = V4L2_CTRL_TYPE_INTEGER,
-        .name = "Contrast",
-        .minimum = MIN_VAMP_CONTRAST_UNITS,
-        .maximum = MAX_VAMP_CONTRAST_UNITS,
-        .step = 1,
-        .default_value = ContrastDefault,
-        .flags = 0,
-        .elem_size = sizeof(s32),
-        .dims = {0},
-        .nr_of_dims = 0,
-    },
-    {
-        .id = V4L2_CID_SATURATION,
-        .type = V4L2_CTRL_TYPE_INTEGER,
-        .name = "Saturation",
-        .minimum = MIN_VAMP_SATURATION_UNITS,
-        .maximum = MAX_VAMP_SATURATION_UNITS,
-        .step = 1,
-        .default_value = SaturationDefault,
-        .flags = 0,
-        .elem_size = sizeof(s32),
-        .dims = {0},
-        .nr_of_dims = 0,
-    },
-    {
-        .id = V4L2_CID_HUE,
-        .type = V4L2_CTRL_TYPE_INTEGER,
-        .name = "Hue",
-        .minimum = MIN_VAMP_HUE_UNITS,
-        .maximum = MAX_VAMP_HUE_UNITS,
-        .step = 1,
-        .default_value = HueDefault,
-        .flags = 0,
-        .elem_size = sizeof(s32),
-        .dims = {0},
-        .nr_of_dims = 0,
-    },
+static const struct v4l2_ctrl_ops hws_ctrl_ops = {
+	.s_ctrl = hws_s_ctrl,
 };
-#define ARRAY_SIZE_OF_EXT_CTRL (sizeof(g_hws_ext_ctrls) / sizeof(g_hws_ext_ctrls[0]))
-static struct v4l2_query_ext_ctrl *find_ext_ctrl(unsigned int id)
+
+static int hws_ctrls_init(struct hws_video *videodev)
 {
-    int i;
-    for (i = 0; i < ARRAY_SIZE_OF_EXT_CTRL; i++) {
-        if (g_hws_ext_ctrls[i].id == id) {
-            return &g_hws_ext_ctrls[i];
-        }
-    }
-    return NULL;
+	struct v4l2_ctrl_handler *hdl = &videodev->ctrl_hdl;
+
+	v4l2_ctrl_handler_init(hdl, 4);
+	videodev->ctrl_brightness = v4l2_ctrl_new_std(hdl, &hws_ctrl_ops, V4L2_CID_BRIGHTNESS,
+		MIN_VAMP_BRIGHTNESS_UNITS, MAX_VAMP_BRIGHTNESS_UNITS, 1, BrightnessDefault);
+	videodev->ctrl_contrast = v4l2_ctrl_new_std(hdl, &hws_ctrl_ops, V4L2_CID_CONTRAST,
+		MIN_VAMP_CONTRAST_UNITS, MAX_VAMP_CONTRAST_UNITS, 1, ContrastDefault);
+	videodev->ctrl_saturation = v4l2_ctrl_new_std(hdl, &hws_ctrl_ops, V4L2_CID_SATURATION,
+		MIN_VAMP_SATURATION_UNITS, MAX_VAMP_SATURATION_UNITS, 1, SaturationDefault);
+	/* HDMI input present, kept current by the status thread */
+	videodev->ctrl_power = v4l2_ctrl_new_std(hdl, NULL, V4L2_CID_DV_RX_POWER_PRESENT,
+						 0, 1, 0, videodev->src_signal);
+	if (hdl->error) {
+		int err = hdl->error;
+		v4l2_ctrl_handler_free(hdl);
+		return err;
+	}
+	/* one s_ctrl call writes the shared register for all three */
+	v4l2_ctrl_cluster(3, &videodev->ctrl_brightness);
+	videodev->vdev.ctrl_handler = hdl;
+	return v4l2_ctrl_handler_setup(hdl);
 }
 
-//
-static struct v4l2_query_ext_ctrl *find_ext_ctrlByIndex(int index)
-{
-    if (index >= 0 && index < ARRAY_SIZE_OF_EXT_CTRL) {
-        return &g_hws_ext_ctrls[index];
-    }
-    return NULL;
-}
-//-------------------------
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
-static int hws_vidioc_g_ctrl(struct file *file, void *fh,struct v4l2_control *a)//
-{
-	struct hws_video *videodev = video_drvdata(file);
-	struct v4l2_control *ctrl = a;
-	//struct v4l2_queryctrl *found_ctrl = find_ctrl(ctrl->id);
-	int ret = -EINVAL;
-	//int bchs_select=0;
-	if(ctrl ==NULL)
-	{
-		printk( "%s(ch-%d)ctrl=NULL\n", __func__,videodev->index);
-		return ret;
-	}
-	//printk( "%s(ch-%d)\n", __func__,videodev->index);
-	switch( ctrl->id ) {
-		case V4L2_CID_BRIGHTNESS: //0x00980900
-
-			//bchs_select = V4L2_BCHS_TYPE_BRIGHTNESS;
-			//adv7619_get_bchs(v4l2m_context->adv7619_handle,&BCHSinfo,bchs_select);
-			ctrl->value = videodev->m_Curr_Brightness;
-			//printk("%s...brightness(%d)\n",__func__,ctrl->value);
-			ret = 0;
-			break;
-
-		case V4L2_CID_CONTRAST:
-
-			//bchs_select = V4L2_BCHS_TYPE_CONTRAST;
-			//printk("%s...contrast(%d)\n",__func__,bchs_select);
-			ctrl->value = videodev->m_Curr_Contrast;
-			ret = 0;
-			break;
-
-		case V4L2_CID_SATURATION:
-
-			//bchs_select = V4L2_BCHS_TYPE_SATURATION;
-			//printk("%s...saturation(%d)\n",__func__,bchs_select);
-			ctrl->value = videodev->m_Curr_Saturation;
-			ret = 0;
-			break;
-
-		case V4L2_CID_HUE:
-
-			//bchs_select = V4L2_BCHS_TYPE_HUE;
-			//printk("%s...hue(%d)\n",__func__,bchs_select);
-			ctrl->value = videodev->m_Curr_Hue;
-			ret = 0;
-			break; //
-		default:
-			ctrl->value =0;
-			printk("control id %d not handled\n", ctrl->id);
-			break;
-
-	}
-	//printk("%s...ctrl->value(%d)=%x\n",__func__,bchs_select,ctrl->value);
-	return ret;
-
-}
-#else 
-static int hws_v4l2_g_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_controls  *cs)//
-{
-	struct hws_video *videodev = video_drvdata(file);
-    int i;
-	if(cs ==NULL)
-	{
-		printk( "%s(ch-%d)cs=NULL\n", __func__,videodev->index);
-		return -EINVAL;
-	}
-	//printk( "%s(ch-%d)-%d\n", __func__,videodev->index,cs->count);
-    for (i = 0; i < cs->count; i++) {
-        struct v4l2_ext_control *c = &cs->controls[i];
-        
-        switch (c->id) {
-            case V4L2_CID_BRIGHTNESS:
-                c->value = videodev->m_Curr_Brightness;
-                break;
-            case V4L2_CID_CONTRAST:
-                c->value = videodev->m_Curr_Contrast;
-                break;
-            case V4L2_CID_SATURATION:
-                c->value = videodev->m_Curr_Saturation;
-                break;
-            case V4L2_CID_HUE:
-                c->value = videodev->m_Curr_Hue;
-                break;
-            default:
-                // ���ô�������������
-                cs->error_idx = i;
-                printk("Unsupported control id: 0x%x\n", c->id);
-                return -EINVAL;
-        }
-    }
-    return 0;
-
-}
-#endif 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
-static int hws_vidioc_s_ctrl(struct file *file, void *fh,struct v4l2_control *a)
-{
-	struct hws_video *videodev = video_drvdata(file);
-	struct v4l2_control *ctrl = a;
-	struct v4l2_queryctrl *found_ctrl;
-	int ret = -EINVAL;
-	if(ctrl ==NULL)
-	{
-		printk( "%s(ch-%d)ctrl=NULL\n", __func__,videodev->index);
-		return ret;
-	}
-	//printk( "%s(ch-%d ctrl->id =%X )\n", __func__,videodev->index,ctrl->id);
-	found_ctrl = find_ctrl(ctrl->id);
-	if( found_ctrl ) {
-		switch( found_ctrl->type ) {
-			case V4L2_CTRL_TYPE_INTEGER:
-				if( ctrl->value >= found_ctrl->minimum
-					|| ctrl->value <= found_ctrl->maximum ) {
-					//printk( "%s(ch-%d ctrl->value =%X )\n", __func__,videodev->index,ctrl->value);
-					switch( ctrl->id ) {
-						case V4L2_CID_BRIGHTNESS:
-							videodev->m_Curr_Brightness = ctrl->value;
-							break;
-						case V4L2_CID_CONTRAST:
-							videodev->m_Curr_Contrast = ctrl->value;
-							break;
-						case V4L2_CID_HUE:
-							videodev->m_Curr_Hue = ctrl->value;
-							break;
-						case V4L2_CID_SATURATION:
-							videodev->m_Curr_Saturation = ctrl->value;
-							break;
-
-						default:
-							break;
-					}
-					//printk( "%s(Name:%s value =%X )\n", __func__,found_ctrl->name,ctrl->value);
-					ret = 0;
-					}
-					else
-					{
-						//error
-						ret = -ERANGE;
-						printk("control %s out of range\n", found_ctrl->name);
-					}
-					break;
-						default:
-						{
-							//error
-							printk("control type %d not handled\n", found_ctrl->type);
-						}
-
-		}
-	}
-	//printk( "%s(ret=%d)\n", __func__,ret);
-	return ret;
-
-}
-#else 
-static int hws_v4l2_s_ext_ctrls(struct file *file, void *fh,struct v4l2_ext_controls  *cs)
-{
-	struct hws_video *videodev = video_drvdata(file);
-    int i;
-	if(cs ==NULL)
-	{
-		printk( "%s(ch-%d)cs=NULL\n", __func__,videodev->index);
-		return -EINVAL;
-	}
-    for (i = 0; i < cs->count; i++) {
-        struct v4l2_ext_control *c = &cs->controls[i];
-        struct v4l2_query_ext_ctrl *found_ctrl;
-        
-        found_ctrl = find_ext_ctrl(c->id);
-        if (!found_ctrl) {
-            cs->error_idx = i;
-            printk("Control not found: 0x%x\n", c->id);
-            return -EINVAL;
-        }
-        
-        // ���ֵ��Χ
-        if (c->value < found_ctrl->minimum || c->value > found_ctrl->maximum) {
-            cs->error_idx = i;
-            printk("Value out of range for control 0x%x (%lld-%lld)\n",
-                   c->id, found_ctrl->minimum, found_ctrl->maximum);
-            return -ERANGE;
-        }
-        
-        // ����ID����ֵ
-        switch (c->id) {
-            case V4L2_CID_BRIGHTNESS:
-                videodev->m_Curr_Brightness = c->value;
-                break;
-            case V4L2_CID_CONTRAST:
-                videodev->m_Curr_Contrast = c->value;
-                break;
-            case V4L2_CID_HUE:
-                videodev->m_Curr_Hue = c->value;
-                break;
-            case V4L2_CID_SATURATION:
-                videodev->m_Curr_Saturation = c->value;
-                break;
-            default:
-                cs->error_idx = i;
-                return -EINVAL;
-        }
-    }
-    return 0;
-
-}
-#endif
-void mem_model_memset(void *s,int c,unsigned int n)
-{
-	memset(s,c,n);
-}
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
-static int hws_vidioc_queryctrl(struct file *file, void *fh,struct v4l2_queryctrl *a)
-{
-	struct hws_video *videodev = video_drvdata(file);
-	struct v4l2_queryctrl *found_ctrl;
-	unsigned int id;
-	unsigned int mask_id;
-	int ret = -EINVAL;
-	//printk( "%s(ch-%d)\n", __func__,videodev->index);
-	//printk( "%s(ctrl-id=0x%X[0x%X] )\n", __func__,a->id,(a->id)&(~V4L2_CTRL_FLAG_NEXT_CTRL));
-	//-----------------------------------------------
-	id = a->id&(~V4L2_CTRL_FLAG_NEXT_CTRL);
-	mask_id =  a->id&V4L2_CTRL_FLAG_NEXT_CTRL;
-	if(mask_id == V4L2_CTRL_FLAG_NEXT_CTRL)
-	{
-		if(id ==0)
-		{
-			videodev->queryIndex =0;
-			found_ctrl = find_ctrlByIndex(videodev->queryIndex);
-			*a = *found_ctrl;
-			//a->id = a->id|V4L2_CTRL_FLAG_NEXT_CTRL;
-			//printk("queryctrl[1] Get [%s][0x%X]\n",found_ctrl->name,a->id);
-			ret = 0;
-		}
-		else
-		{
-			videodev->queryIndex++;
-			found_ctrl = find_ctrlByIndex(videodev->queryIndex);
-			if(found_ctrl!= NULL)
-			{
-				*a = *found_ctrl;
-				//a->id = a->id|V4L2_CTRL_FLAG_NEXT_CTRL;
-				//printk("queryctrl[2] Get [%s][0x%X]\n",found_ctrl->name,a->id);
-				ret = 0;
-			}
-			else
-			{
-				*a	= g_no_ctrl;
-				ret = -EINVAL;
-			}
-
-		}
-
-
-	}
-	else
-	{
-		found_ctrl = find_ctrl(id);
-		if(NULL != found_ctrl)
-		{
-			*a = *found_ctrl;
-			//printk("queryctrl[3] Get [%s][0x%X]\n",found_ctrl->name,a->id);
-			ret = 0;
-		}
-		else
-		{
-			*a	= g_no_ctrl;
-			ret = -EINVAL;
-		}
-
-
-	}
-	return ret;
-
-}
-#else
-static int hws_v4l2_query_ext_ctrl(struct file *file, void *fh,struct v4l2_query_ext_ctrl  *qc)
-{
-	struct hws_video *videodev = video_drvdata(file);
-    struct v4l2_query_ext_ctrl *found_ctrl;
-    unsigned int id;
-    unsigned int mask_id;
-    int ret = -EINVAL;
-	if(qc ==NULL)
-	{
-		printk( "%s(ch-%d)cs=NULL\n", __func__,videodev->index);
-		return ret;
-	}
-	
-    id = qc->id & (~V4L2_CTRL_FLAG_NEXT_CTRL);
-    mask_id = qc->id & V4L2_CTRL_FLAG_NEXT_CTRL;
-    if (mask_id == V4L2_CTRL_FLAG_NEXT_CTRL) {
-        if (id == 0) {
-            videodev->queryIndex = 0;
-            found_ctrl = find_ext_ctrlByIndex(videodev->queryIndex);
-            if (found_ctrl) {
-                memcpy(qc, found_ctrl, sizeof(*qc));
-                // ��� NEXT_CTRL ��־
-                qc->id = found_ctrl->id; 
-                ret = 0;
-            }
-        } else {
-            videodev->queryIndex++;
-            found_ctrl = find_ext_ctrlByIndex(videodev->queryIndex);
-            if (found_ctrl) {
-                memcpy(qc, found_ctrl, sizeof(*qc));
-                qc->id = found_ctrl->id;
-                ret = 0;
-            } else {
-                // ���ؿտ������ʾ����
-                memset(qc, 0, sizeof(*qc));
-                ret = -EINVAL;
-            }
-        }
-    } else {
-        found_ctrl = find_ext_ctrl(id);
-        if (found_ctrl) {
-            memcpy(qc, found_ctrl, sizeof(*qc));
-            ret = 0;
-        } else {
-            memset(qc, 0, sizeof(*qc));
-            ret = -EINVAL;
-        }
-    }
-    return ret;
-
-}
-#endif 
 #if 0
 static int hws_vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
@@ -1289,77 +801,277 @@ return(vb2_ioctl_streamoff(file,priv,i));
 
 }
 #endif
-static int hws_vidioc_enum_frameintervals(struct file *file, void *fh,
-										  struct v4l2_frmivalenum *fival)
+#define HWS_MAX_DECIMATE 4
+
+/* The input's time per frame: measured if possible, else the table's nominal rate. */
+static void hws_input_tpf(struct hws_video *videodev, struct v4l2_fract *tpf)
 {
-	//struct hws_video *videodev = video_drvdata(file);
-	int Index;
-	int FrameRate;
-	v4l2_model_timing_t * pModeTiming;
-	Index = fival->index;
-	//printk( "%s(CH-%d) FrameIndex =%d \n", __func__,videodev->index,Index);
-	if(Index <0 ||Index >=NUM_FRAMERATE_CONTROLS)
-	{
-		return   -EINVAL;
-	}
+	v4l2_model_timing_t *t;
 
-	FrameRate = v4l2_model_get_support_framerate(Index);
-	if(FrameRate == -1) return -EINVAL;
-	pModeTiming = Get_input_framesizeIndex(fival->width,fival->height);
-	if(pModeTiming == NULL) return -EINVAL;
+	if (hws_input_timeperframe(videodev->dev, videodev->index, tpf))
+		return;
+	t = Get_input_framesizeIndex(videodev->current_out_width, videodev->curren_out_height);
+	tpf->numerator = 1;
+	tpf->denominator = t ? t->refresh_rate : 60;
+}
 
-	#if 1
+/*
+ * Rates are the input rate divided by 1..HWS_MAX_DECIMATE: the card always
+ * captures at the input rate, and a consumer that asks for less gets every
+ * Nth frame, which also saves the copy for the frames it skips.
+ */
+static int hws_vidioc_enum_frameintervals(struct file *file, void *fh,
+					  struct v4l2_frmivalenum *fival)
+{
+	struct hws_video *videodev = video_drvdata(file);
+	struct v4l2_fract tpf;
+
+	if (fival->index >= HWS_MAX_DECIMATE)
+		return -EINVAL;
+	if (!framegrabber_g_support_pixelfmt_by_fourcc(fival->pixel_format))
+		return -EINVAL;
+	if (!hws_size_supported(videodev, fival->width, fival->height))
+		return -EINVAL;
+	hws_input_tpf(videodev, &tpf);
 	fival->type = V4L2_FRMIVAL_TYPE_DISCRETE;
-	fival->discrete.numerator=1 ;
-	fival->discrete.denominator=FrameRate;
-	#else
-	fival->type = V4L2_FRMIVAL_TYPE_DISCRETE;
-    if (fival->width == 720 && fival->height == 576) {
-        /* just show  25/50 */
-        if (fival->index == 0) {
-            fival->discrete.numerator = 1;
-            fival->discrete.denominator = 25;
-            return 0;
-        } else if (fival->index == 1) {
-            fival->discrete.numerator = 1;
-            fival->discrete.denominator = 50;
-            return 0;
-        }
-        return -EINVAL;
-    } else {
-        /* ohter  30/60 */
-        if (fival->index == 0) {
-            fival->discrete.numerator = 1;
-            fival->discrete.denominator = 30;
-            return 0;
-        } else if (fival->index == 1) {
-            fival->discrete.numerator = 1;
-            fival->discrete.denominator = 60;
-            return 0;
-        }
-        return -EINVAL;
-    }
-	#endif
-
-	//printk( "%s FrameIndex=%d W=%d H=%d  FrameRate=%d \n", __func__,Index,fival->width,fival->height,FrameRate);
+	fival->discrete.numerator = tpf.numerator * (fival->index + 1);
+	fival->discrete.denominator = tpf.denominator;
 	return 0;
 }
+
+int hws_vidioc_g_parm(struct file *file,void *fh, struct v4l2_streamparm *a)
+{
+	struct hws_video *videodev = video_drvdata(file);
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	struct v4l2_fract tpf;
+
+	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return -EINVAL;
+	hws_input_tpf(videodev, &tpf);
+	memset(&a->parm.capture, 0, sizeof(a->parm.capture));
+	a->parm.capture.capability = V4L2_CAP_TIMEPERFRAME;
+	a->parm.capture.timeperframe.numerator = tpf.numerator * ctx->decimate;
+	a->parm.capture.timeperframe.denominator = tpf.denominator;
+	return 0;
+}
+
 int hws_vidioc_s_parm(struct file *file, void *fh,struct v4l2_streamparm *a)
 {
 	struct hws_video *videodev = video_drvdata(file);
-	int io_frame_rate;
-	int in_frame_rate;
-	//int io_widht;
-	//int io_hight;
-	//int io_index;
-	v4l2_model_timing_t *p_SupportmodeTiming;
-	io_frame_rate = a->parm.capture.timeperframe.denominator/a->parm.capture.timeperframe.numerator;
-	//io_index = a->parm.capture.timeperframe.index;
-	//printk( "%s(CH-%d) io_index =%d \n", __func__,videodev->index,io_index);
-	p_SupportmodeTiming = v4l2_model_get_support_videoformat(videodev->current_out_size_index);
-	if(p_SupportmodeTiming ==NULL) return -EINVAL;
-	in_frame_rate = p_SupportmodeTiming->refresh_rate;
-	//printk( "%s(ch-%d)io_frame_rate =%d  in_frame_rate =%d \n", __func__,videodev->index,io_frame_rate,in_frame_rate);
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	struct v4l2_fract *want = &a->parm.capture.timeperframe;
+	struct v4l2_fract tpf;
+	u64 want_ns, in_ns;
+	u32 n;
+
+	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return -EINVAL;
+	/* 0/x or x/0 means "no preference": keep the current rate (this used to divide by zero) */
+	if (want->numerator && want->denominator) {
+		hws_input_tpf(videodev, &tpf);
+		want_ns = div_u64((u64)want->numerator * NSEC_PER_SEC, want->denominator);
+		in_ns = div_u64((u64)tpf.numerator * NSEC_PER_SEC, tpf.denominator);
+		n = in_ns ? (u32)div64_u64(want_ns + in_ns / 2, in_ns) : 1;
+		ctx->decimate = clamp_t(u32, n, 1, HWS_MAX_DECIMATE);
+	}
+	return hws_vidioc_g_parm(file, fh, a);
+}
+
+/* What the card can lock to: HDMI 2.0 up to 4096x2160 (3840 if DMA buffers had to stay at 4 MiB). */
+static const struct v4l2_dv_timings_cap hws_timings_cap = {
+	.type = V4L2_DV_BT_656_1120,
+	V4L2_INIT_BT_TIMINGS(640, 4096, 480, 2160, 13500000, 600000000,
+		V4L2_DV_BT_STD_CEA861 | V4L2_DV_BT_STD_DMT | V4L2_DV_BT_STD_CVT | V4L2_DV_BT_STD_GTF,
+		V4L2_DV_BT_CAP_PROGRESSIVE | V4L2_DV_BT_CAP_INTERLACED |
+		V4L2_DV_BT_CAP_REDUCED_BLANKING | V4L2_DV_BT_CAP_CUSTOM)
+};
+
+/*
+ * v4l2_*_dv_timings_cap filter: progressive timings whose size the driver can
+ * deliver. Interlaced input is delivered line-doubled as progressive frames, so
+ * listing interlaced timings would promise a field format the driver never
+ * produces; the live input's own timings are accepted separately.
+ */
+static bool hws_timings_supported(const struct v4l2_dv_timings *t, void *handle)
+{
+	return !t->bt.interlaced && hws_size_supported(handle, t->bt.width, t->bt.height);
+}
+
+static u64 hws_tpf_ns(const struct v4l2_fract *f)
+{
+	return f->denominator ? div_u64((u64)f->numerator * NSEC_PER_SEC, f->denominator) : 0;
+}
+
+/*
+ * Describe the current input as DV timings. The card reports only the active
+ * size and interlacing, so take the standard preset with that size and the
+ * closest frame rate; for a size no preset has, synthesize timings without
+ * blanking whose pixel clock still gives the measured rate.
+ */
+static int hws_query_timings(struct hws_video *videodev, struct v4l2_dv_timings *t)
+{
+	struct hws_pcie_dev *pdx = videodev->dev;
+	struct v4l2_fract tpf, ptpf;
+	u64 want_ns, best_err = U64_MAX, err;
+	int w, h, il, i, best = -1;
+	u32 st;
+
+	if (!hws_read_input(pdx, videodev->index, &w, &h, &il)) {
+		st = pdx->m_PciDeviceLost ? 0 :
+		     READ_REGISTER_ULONG(pdx, CVBS_IN_BASE + 5 * PCIE_BARADDROFSIZE);
+		return (st != 0xFFFFFFFF && ((st >> videodev->index) & 1)) ? -ERANGE : -ENOLINK;
+	}
+	if (!hws_input_timeperframe(pdx, videodev->index, &tpf)) {
+		tpf.numerator = 1;	/* not measured yet (rate is counted while capturing) */
+		tpf.denominator = 60;
+	}
+	want_ns = hws_tpf_ns(&tpf);
+
+	for (i = 0; v4l2_dv_timings_presets[i].bt.width; i++) {
+		const struct v4l2_bt_timings *bt = &v4l2_dv_timings_presets[i].bt;
+		if (bt->width != w || bt->height != h || !!bt->interlaced != !!il)
+			continue;
+		ptpf = v4l2_calc_timeperframe(&v4l2_dv_timings_presets[i]);
+		err = hws_tpf_ns(&ptpf);
+		err = err > want_ns ? err - want_ns : want_ns - err;
+		if (err < best_err) {
+			best_err = err;
+			best = i;
+		}
+	}
+	if (best >= 0 && best_err * 100 <= want_ns) {	/* within 1% */
+		*t = v4l2_dv_timings_presets[best];
+		return 0;
+	}
+	memset(t, 0, sizeof(*t));
+	t->type = V4L2_DV_BT_656_1120;
+	t->bt.width = w;
+	t->bt.height = h;
+	t->bt.interlaced = il ? V4L2_DV_INTERLACED : V4L2_DV_PROGRESSIVE;
+	t->bt.pixelclock = div_u64((u64)w * h * tpf.denominator, tpf.numerator);
+	return 0;
+}
+
+static int hws_query_dv_timings(struct file *file, void *fh, struct v4l2_dv_timings *t)
+{
+	return hws_query_timings(video_drvdata(file), t);
+}
+
+static int hws_g_dv_timings(struct file *file, void *fh, struct v4l2_dv_timings *t)
+{
+	struct hws_video *videodev = video_drvdata(file);
+
+	if (!videodev->dv_timings.bt.width && hws_query_timings(videodev, &videodev->dv_timings))
+		return -ENODATA;
+	*t = videodev->dv_timings;
+	return 0;
+}
+
+/*
+ * The card follows its input, so these timings choose the output format: the
+ * usual sequence is QUERY_DV_TIMINGS, S_DV_TIMINGS, G_FMT.
+ */
+static int hws_s_dv_timings(struct file *file, void *fh, struct v4l2_dv_timings *t)
+{
+	struct hws_video *videodev = video_drvdata(file);
+	struct hws_pcie_dev *pdx = videodev->dev;
+	struct v4l2_dv_timings live;
+	unsigned long flags;
+
+	/* the input's own timings always work, interlaced ones included (QUERY then S) */
+	if (!(hws_query_timings(videodev, &live) == 0 && v4l2_match_dv_timings(t, &live, 0, false)) &&
+	    !v4l2_valid_dv_timings(t, &hws_timings_cap, hws_timings_supported, videodev))
+		return -EINVAL;
+	if (v4l2_match_dv_timings(t, &videodev->dv_timings, 0, false))
+		return 0;
+	if (hws_any_queue_busy(videodev))
+		return -EBUSY;
+	videodev->dv_timings = *t;
+	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
+	videodev->current_out_width = t->bt.width;
+	videodev->curren_out_height = t->bt.height;
+	spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
+	return 0;
+}
+
+static int hws_enum_dv_timings(struct file *file, void *fh, struct v4l2_enum_dv_timings *t)
+{
+	return v4l2_enum_dv_timings_cap(t, &hws_timings_cap, hws_timings_supported,
+					video_drvdata(file));
+}
+
+static int hws_dv_timings_cap(struct file *file, void *fh, struct v4l2_dv_timings_cap *cap)
+{
+	*cap = hws_timings_cap;
+	return 0;
+}
+
+static int hws_subscribe_event(struct v4l2_fh *fh, const struct v4l2_event_subscription *sub)
+{
+	switch (sub->type) {
+	case V4L2_EVENT_SOURCE_CHANGE:
+		return v4l2_src_change_event_subscribe(fh, sub);
+	case V4L2_EVENT_CTRL:
+		return v4l2_ctrl_subscribe_event(fh, sub);
+	}
+	return -EINVAL;
+}
+
+/*
+ * Called by the status thread for every channel with an open file handle:
+ * signal gained or lost, or the size or interlacing changed, raises
+ * V4L2_EVENT_SOURCE_CHANGE so apps can renegotiate.
+ */
+static void hws_check_source_change(struct hws_video *videodev)
+{
+	static const struct v4l2_event ev = {
+		.type = V4L2_EVENT_SOURCE_CHANGE,
+		.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
+	};
+	int w = 0, h = 0, il = 0;
+	bool sig = hws_read_input(videodev->dev, videodev->index, &w, &h, &il);
+
+	if (sig == videodev->src_signal && w == videodev->src_w &&
+	    h == videodev->src_h && il == videodev->src_il)
+		return;
+	videodev->src_signal = sig;
+	videodev->src_w = w;
+	videodev->src_h = h;
+	videodev->src_il = il;
+	videodev->dv_timings.bt.width = 0;	/* G_DV_TIMINGS re-queries */
+	v4l2_ctrl_s_ctrl(videodev->ctrl_power, sig);
+	v4l2_event_queue(&videodev->vdev, &ev);
+}
+
+static int hws_log_status(struct file *file, void *fh)
+{
+	struct hws_video *videodev = video_drvdata(file);
+	struct hws_pcie_dev *pdx = videodev->dev;
+	struct v4l2_dv_timings t;
+	struct v4l2_fract tpf;
+	struct hws_vfh_ctx *ctx;
+	unsigned long flags;
+	int open = 0, streaming = 0;
+
+	if (hws_query_timings(videodev, &t) == 0)
+		v4l2_print_dv_timings(videodev->v4l2_dev.name, "input: ", &t, true);
+	else
+		v4l2_info(&videodev->v4l2_dev, "input: no usable signal\n");
+	if (hws_input_timeperframe(pdx, videodev->index, &tpf))
+		v4l2_info(&videodev->v4l2_dev, "measured frame interval: %u/%u s\n",
+			  tpf.numerator, tpf.denominator);
+	v4l2_info(&videodev->v4l2_dev, "output: %dx%d, frames: %u, dropped: %u, DMA buffers: %d KiB\n",
+		  videodev->current_out_width, videodev->curren_out_height,
+		  pdx->m_FrameSeq[videodev->index], pdx->m_FramesDropped[videodev->index],
+		  pdx->m_MaxHWVideoBufferSize / 1024);
+	spin_lock_irqsave(&videodev->consumers_lock, flags);
+	list_for_each_entry(ctx, &videodev->consumers, node) {
+		open++;
+		streaming += ctx->streaming;
+	}
+	spin_unlock_irqrestore(&videodev->consumers_lock, flags);
+	v4l2_info(&videodev->v4l2_dev, "file handles: %d open, %d streaming\n", open, streaming);
+	v4l2_ctrl_handler_log_status(&videodev->ctrl_hdl, videodev->v4l2_dev.name);
 	return 0;
 }
 
@@ -1387,6 +1099,10 @@ static bool hws_is_buffer_ioctl(unsigned int cmd)
 	case VIDIOC_DQBUF:
 	case VIDIOC_STREAMON:
 	case VIDIOC_STREAMOFF:
+	case VIDIOC_DQEVENT:		/* per file handle, and may block like DQBUF */
+#ifdef VIDIOC_DQEVENT_TIME32
+	case VIDIOC_DQEVENT_TIME32:
+#endif
 #ifdef VIDIOC_DQBUF_TIME32
 	case VIDIOC_QUERYBUF_TIME32:
 	case VIDIOC_QBUF_TIME32:
@@ -1523,7 +1239,6 @@ static const struct v4l2_file_operations hws_fops = {
     .owner          = THIS_MODULE,
     .open           = hws_open,
     .release        = hws_release,
-    .read           = hws_read,
     .poll           = hws_poll,
     .unlocked_ioctl = hws_unlocked_ioctl,
     .mmap           = hws_mmap,
@@ -1544,30 +1259,22 @@ static const struct v4l2_ioctl_ops hws_ioctl_fops = {
 	.vidioc_dqbuf         = hws_dqbuf,
 	.vidioc_streamon      = hws_streamon,
 	.vidioc_streamoff     = hws_streamoff,
-	.vidioc_g_std = hws_vidioc_g_std,
-	.vidioc_s_std = hws_vidioc_s_std,
 	.vidioc_enum_framesizes   	= hws_vidioc_enum_framesizes,
 	.vidioc_enum_frameintervals = hws_vidioc_enum_frameintervals,
-	#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
-		.vidioc_g_ctrl	   = hws_vidioc_g_ctrl,
-		.vidioc_s_ctrl	   = hws_vidioc_s_ctrl,
-		.vidioc_queryctrl  = hws_vidioc_queryctrl,
-		.vidioc_g_parm 	   = hws_vidioc_g_parm,
-		.vidioc_s_parm     = hws_vidioc_s_parm,
-	#else
-		.vidioc_g_ext_ctrls =  hws_v4l2_g_ext_ctrls,
-		.vidioc_s_ext_ctrls =  hws_v4l2_s_ext_ctrls,
-		.vidioc_query_ext_ctrl =  hws_v4l2_query_ext_ctrl,
-		.vidioc_g_parm 	   = hws_vidioc_g_parm,
-		.vidioc_s_parm     = hws_vidioc_s_parm,
-	#endif
+	.vidioc_g_parm 	   = hws_vidioc_g_parm,
+	.vidioc_s_parm     = hws_vidioc_s_parm,
 
 	.vidioc_enum_input = hws_vidioc_enum_input,
 	.vidioc_g_input = hws_vidioc_g_input,
 	.vidioc_s_input = hws_vidioc_s_input,
-	//.vidioc_log_status = vidioc_log_status,
-	//.vidioc_subscribe_event = v4l2_ctrl_subscribe_event,
-	//.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
+	.vidioc_query_dv_timings = hws_query_dv_timings,
+	.vidioc_g_dv_timings = hws_g_dv_timings,
+	.vidioc_s_dv_timings = hws_s_dv_timings,
+	.vidioc_enum_dv_timings = hws_enum_dv_timings,
+	.vidioc_dv_timings_cap = hws_dv_timings_cap,
+	.vidioc_log_status = hws_log_status,
+	.vidioc_subscribe_event = hws_subscribe_event,
+	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
 
 };
 
@@ -1815,6 +1522,7 @@ static int hws_start_streaming_multi(struct vb2_queue *q, unsigned int count)
     struct hws_vfh_ctx *ctx = q->drv_priv;
     struct hws_video *videodev = ctx->video;
 
+    ctx->next_seq = 0;
     ctx->streaming = true;
 
     /* Start hardware engine only once, on first streamer. engine_lock keeps a
@@ -3563,7 +3271,7 @@ static int  MemCopyFrame(int nDecoder,BYTE * dest,int nWidth,int nHeight,int int
  * as in flight. One per consumer, so every app gets each frame once; this used
  * to drain every queued buffer and fill them all with the same frame.
  */
-static void hws_pop_one_per_consumer(struct hws_video *videodev, struct list_head *out)
+static void hws_pop_one_per_consumer(struct hws_video *videodev, struct list_head *out, u32 seq)
 {
 	struct hws_vfh_ctx *ctx;
 	unsigned long flags, qflags;
@@ -3572,10 +3280,14 @@ static void hws_pop_one_per_consumer(struct hws_video *videodev, struct list_hea
 	list_for_each_entry(ctx, &videodev->consumers, node) {
 		if (!ctx->streaming)
 			continue;
+		/* a lower requested rate (S_PARM) skips frames; a counter reset restarts it */
+		if (seq < ctx->next_seq && ctx->next_seq - seq <= ctx->decimate)
+			continue;
 		spin_lock_irqsave(&ctx->qlock, qflags);
 		if (!list_empty(&ctx->buf_queue)) {
 			list_move_tail(ctx->buf_queue.next, out);
 			atomic_inc(&ctx->inflight);
+			ctx->next_seq = seq + ctx->decimate;
 		}
 		spin_unlock_irqrestore(&ctx->qlock, qflags);
 	}
@@ -3667,7 +3379,7 @@ void video_data_process(struct work_struct *p_work)
 	spin_unlock_irqrestore(&pdx->videoslock[nCh], flags);
 	out_size = out_w * out_h * 2;
 
-	hws_pop_one_per_consumer(videodev, &todo);
+	hws_pop_one_per_consumer(videodev, &todo, frame_seq);
 
 	list_for_each_entry_safe(buf, tmp, &todo, queue) {
 		list_del(&buf->queue);
@@ -3778,10 +3490,6 @@ int hws_video_register(struct hws_pcie_dev *dev)
 		dev->video[i].std = V4L2_STD_NTSC_M;
 		dev->video[i].pixfmt = V4L2_PIX_FMT_YUYV;
 		//-------------------
-		dev->video[i].m_Curr_Brightness = BrightnessDefault;
-		dev->video[i].m_Curr_Contrast   = ContrastDefault;
-		dev->video[i].m_Curr_Saturation = SaturationDefault;
-		dev->video[i].m_Curr_Hue = HueDefault;
 		//-------------------
 		vdev->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 		vdev->v4l2_dev = &(dev->video[i].v4l2_dev);
@@ -3806,7 +3514,7 @@ int hws_video_register(struct hws_pcie_dev *dev)
 		video_set_drvdata(vdev, &(dev->video[i]));
 
 		q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		q->io_modes = VB2_READ | VB2_MMAP | VB2_USERPTR;
+		q->io_modes = VB2_MMAP | VB2_USERPTR;
 		//q->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF | VB2_READ;
 		q->gfp_flags = GFP_DMA32;
 		//q->min_buffers_needed = 2;
@@ -3830,6 +3538,14 @@ int hws_video_register(struct hws_pcie_dev *dev)
 		}
 
 		INIT_WORK(&dev->video[i].videowork,video_data_process);
+		/* seed the status thread's view so the first poll raises no event */
+		dev->video[i].src_signal = hws_read_input(dev, i, &dev->video[i].src_w,
+							  &dev->video[i].src_h, &dev->video[i].src_il);
+		err = hws_ctrls_init(&dev->video[i]);
+		if(err){
+			printk(KERN_ERR " control handler init failed !!!!! \n");
+			goto fail;
+		}
 		#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0))
 		err = video_register_device(vdev, VFL_TYPE_GRABBER,-1);
 		#else
@@ -3848,6 +3564,7 @@ int hws_video_register(struct hws_pcie_dev *dev)
 	for(i=0;i<dev->m_nCurreMaxVideoChl;i++){
 		vdev = &dev->video[i].vdev;
 		video_unregister_device(vdev);
+		v4l2_ctrl_handler_free(&dev->video[i].ctrl_hdl);
 		v4l2_device_unregister(&dev->video[i].v4l2_dev);
 	}
 	return err;
@@ -4530,6 +4247,7 @@ static void hws_remove(struct pci_dev *pdev)
 	for(i=0;i<dev->m_nCurreMaxVideoChl;i++){
 		vdev = &dev->video[i].vdev;
 		video_unregister_device(vdev);
+		v4l2_ctrl_handler_free(&dev->video[i].ctrl_hdl);
 		v4l2_device_unregister(&dev->video[i].v4l2_dev);
 	}
 	//-----------------
@@ -5294,6 +5012,77 @@ pdx->m_bChangeVideoSize[i] = 0;
 /* Interrupt handler. Read/modify/write the command register to disable
  * the interrupt. */
 //static irqreturn_t irqhandler(int irq, struct uio_info *info)
+/*
+ * Called from the interrupt handler when a frame completes. Besides the frame
+ * timestamp, measures the input frame rate: frame periods are counted over
+ * windows of about a second, which resolves 60.00 from 59.94 fps (0.1% apart)
+ * despite interrupt jitter. A frame-end interrupt can be missed (the half-frame
+ * toggle is only sampled when the tasklet is idle), so each interval counts as
+ * however many periods it spans, rounded, against the shortest interval seen in
+ * the window; a plain count read one missed interrupt per second as 59 fps.
+ * A gap longer than 200 ms (signal loss, capture restart) starts a new window.
+ */
+static void hws_frame_end(struct hws_pcie_dev *pdx, int ch, u64 now)
+{
+	u64 prev = pdx->m_FrameEndNs[ch];
+	u64 elapsed, d, unit;
+
+	pdx->m_FrameEndNs[ch] = now;
+	if (!prev || now - prev > 200 * NSEC_PER_MSEC || !pdx->m_RateWinStartNs[ch]) {
+		pdx->m_RateWinStartNs[ch] = now;
+		pdx->m_RateWinFrames[ch] = 0;
+		pdx->m_RateMinDeltaNs[ch] = 0;
+		return;
+	}
+	d = now - prev;
+	if (!pdx->m_RateMinDeltaNs[ch] || d < pdx->m_RateMinDeltaNs[ch])
+		pdx->m_RateMinDeltaNs[ch] = d;
+	unit = pdx->m_RateMinDeltaNs[ch];
+	pdx->m_RateWinFrames[ch] += max_t(u32, 1, (u32)div64_u64(d + unit / 2, unit));
+	elapsed = now - pdx->m_RateWinStartNs[ch];
+	if (elapsed >= NSEC_PER_SEC) {
+		WRITE_ONCE(pdx->m_FrameIntervalNs[ch], div_u64(elapsed, pdx->m_RateWinFrames[ch]));
+		pdx->m_RateWinStartNs[ch] = now;
+		pdx->m_RateWinFrames[ch] = 0;
+	}
+}
+
+/*
+ * The measured input frame interval as a time-per-frame fraction, snapped to
+ * the closest standard rate when within 0.5%. Returns false if no rate has
+ * been measured yet; frames are only counted while capture runs.
+ */
+static bool hws_input_timeperframe(struct hws_pcie_dev *pdx, int ch, struct v4l2_fract *tpf)
+{
+	static const struct v4l2_fract standard[] = {
+		{ 1001, 24000 }, { 1, 24 }, { 1, 25 }, { 1001, 30000 }, { 1, 30 },
+		{ 1, 50 }, { 1001, 60000 }, { 1, 60 }, { 1, 100 }, { 1001, 120000 },
+		{ 1, 120 }, { 1, 144 }, { 1, 240 },
+	};
+	u64 meas = READ_ONCE(pdx->m_FrameIntervalNs[ch]);
+	u64 best_err = U64_MAX;
+	int i, best = -1;
+
+	if (!meas)
+		return false;
+	for (i = 0; i < ARRAY_SIZE(standard); i++) {
+		u64 std = div_u64((u64)standard[i].numerator * NSEC_PER_SEC, standard[i].denominator);
+		u64 err = meas > std ? meas - std : std - meas;
+		if (err < best_err) {
+			best_err = err;
+			best = i;
+		}
+	}
+	if (best >= 0 && best_err * 200 <= div_u64((u64)standard[best].numerator * NSEC_PER_SEC,
+						    standard[best].denominator)) {
+		*tpf = standard[best];
+	} else {
+		tpf->numerator = (u32)div_u64(meas, 1000);	/* microseconds */
+		tpf->denominator = 1000000;
+	}
+	return true;
+}
+
 static irqreturn_t irqhandler(int irq, void  *info)
 {
 	struct hws_pcie_dev *pdx = (struct hws_pcie_dev *)(info);
@@ -5326,7 +5115,7 @@ static irqreturn_t irqhandler(int irq, void  *info)
 						if(pdx->video_data[0] != tmp)
 						{
 							if(tmp == 0)	/* second half done: the frame is complete */
-								pdx->m_FrameEndNs[0] = ktime_get_ns();
+								hws_frame_end(pdx, 0, ktime_get_ns());
 							pdx->video_data[0]= tmp;
 							pdx->m_nVideoBufferIndex[0]  = tmp;
 							tasklet_schedule(&pdx->dpc_video_tasklet[0]);  // tasklet_hi_schedule
@@ -5768,12 +5557,18 @@ int MainKsThreadHandle(void *arg)
 		{
 			CheckVideFmt(pdx);
 		}
+		for(i=0; i<pdx->m_nCurreMaxVideoChl; i++)
+		{
+			if(pdx->video[i].fileindex > 0)
+				hws_check_source_change(&pdx->video[i]);
+		}
 		/*
 		 * TASK_IDLE: ssleep() slept uninterruptibly, which counts toward
 		 * the load average and kept it 1.0 higher for as long as the
 		 * module was loaded. kthread_stop() still wakes this early.
+		 * Every 250 ms so resolution changes are noticed quickly.
 		 */
-		schedule_timeout_idle(HZ);
+		schedule_timeout_idle(HZ / 4);
 	}
 	//printk("MainKsThreadHandle Exit");
 	return 0;
@@ -5971,6 +5766,12 @@ static void InitVideoSys(struct hws_pcie_dev *pdx,int set)
 	WRITE_REGISTER_ULONG(pdx,CVBS_IN_BASE, m_Valude);
 	WRITE_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (0 * PCIE_BARADDROFSIZE)), 0X13);
 	pdx->m_bStartRun = 1;
+	/* a re-init (CheckCardStatus) must not drop the user's picture settings */
+	for(i=0; i<pdx->m_nCurreMaxVideoChl; i++)
+	{
+		if(pdx->video[i].m_PictureReg)
+			WRITE_REGISTER_ULONG(pdx, HWS_PICTURE_REG(i), pdx->video[i].m_PictureReg);
+	}
 	//--------------------------------------------------
 
 }
@@ -6276,11 +6077,71 @@ return	-1;
 
 MODULE_DEVICE_TABLE(pci, hws_pci_table);
 
+/*
+ * System sleep. The card loses its registers in S3 (run state, DMA address
+ * table, buffer addresses and lengths), and re-running InitVideoSys() alone
+ * does not bring it back, so resume replays the probe-time reset (ReadChipId)
+ * and init before restarting whatever was capturing. The PCI core saves and
+ * restores config space (BARs, bus mastering, MSI) around these callbacks.
+ */
+static int hws_suspend(struct device *d)
+{
+	struct hws_pcie_dev *pdx = dev_get_drvdata(d);
+	int i;
+
+	for (i = 0; i < pdx->m_nCurreMaxVideoChl; i++) {
+		pdx->m_ResumeVideo[i] = pdx->m_bVCapStarted[i];
+		pdx->m_ResumeAudio[i] = pdx->m_bACapStarted[i];
+		if (pdx->m_bVCapStarted[i])
+			EnableVideoCapture(pdx, i, 0);
+		if (pdx->m_bACapStarted[i])
+			EnableAudioCapture(pdx, i, 0);
+	}
+	if (pdx->wq)
+		flush_workqueue(pdx->wq);
+	if (pdx->auwq)
+		flush_workqueue(pdx->auwq);
+	return 0;
+}
+
+static int hws_resume(struct device *d)
+{
+	struct hws_pcie_dev *pdx = dev_get_drvdata(d);
+	int i;
+
+	WRITE_REGISTER_ULONG(pdx, CVBS_IN_BASE, 0x0);
+	WRITE_REGISTER_ULONG(pdx, CVBS_IN_BASE, 0x10);
+	pdx->m_bStartRun = 0;
+	InitVideoSys(pdx, 0);
+	for (i = 0; i < pdx->m_nCurreMaxVideoChl; i++) {
+		pdx->m_FrameEndNs[i] = 0;	/* restart the frame-rate window */
+		if (pdx->m_ResumeVideo[i]) {
+			pdx->m_bVCapStarted[i] = 0;
+			StartVideoCapture(pdx, i);
+		}
+		if (pdx->m_ResumeAudio[i]) {
+			pdx->m_bACapStarted[i] = 0;
+			StartAudioCapture(pdx, i);
+		}
+	}
+	dev_info(d, "resumed, card re-initialised\n");
+	return 0;
+}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,17,0)
+static DEFINE_SIMPLE_DEV_PM_OPS(hws_pm_ops, hws_suspend, hws_resume);
+#define HWS_PM_OPS pm_sleep_ptr(&hws_pm_ops)
+#else
+static SIMPLE_DEV_PM_OPS(hws_pm_ops, hws_suspend, hws_resume);
+#define HWS_PM_OPS (&hws_pm_ops)
+#endif
+
 static struct pci_driver hws_pci_driver = {
 	.name        = KBUILD_MODNAME,
 	.id_table    = hws_pci_table,
 	.probe       = hws_probe,
 	.remove      = hws_remove,
+	.driver.pm   = HWS_PM_OPS,
 };
 
 static __init int pcie_hws_init(void)

@@ -10,6 +10,8 @@
 
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-event.h>
+#include <media/v4l2-dv-timings.h>
+#include <linux/v4l2-dv-timings.h>	/* V4L2_INIT_BT_TIMINGS */
 #include <media/v4l2-common.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ctrls.h>
@@ -313,6 +315,8 @@ struct hws_vfh_ctx {
     bool                streaming;
     atomic_t            inflight;    /* buffers the worker popped but has not completed */
     wait_queue_head_t   inflight_wq; /* stop_streaming waits here for inflight == 0 */
+    u32                 decimate;    /* deliver every Nth input frame (S_PARM), 1..4 */
+    u32                 next_seq;    /* first frame sequence this consumer still wants */
     struct hws_video   *video;
     struct list_head    node;        /* link into video->consumers */
 };
@@ -336,15 +340,20 @@ struct hws_video{
 	spinlock_t				slock;
 	v4l2_std_id				std;  //V4L2_STD_NTSC_M
 	u32						pixfmt; //V4L2_PIX_FMT_YUYV(fourcc)
-	int                     queryIndex;
 	int						index;
 	struct work_struct		videowork;
 	int						Interlaced;
 	//------------------------
-	int m_Curr_Brightness;
-	int m_Curr_Contrast;   
-	int m_Curr_Saturation;
-	int m_Curr_Hue;       
+	struct v4l2_ctrl_handler ctrl_hdl;
+	struct v4l2_ctrl *ctrl_brightness;	/* cluster: brightness, contrast, saturation */
+	struct v4l2_ctrl *ctrl_contrast;
+	struct v4l2_ctrl *ctrl_saturation;
+	struct v4l2_ctrl *ctrl_power;		/* V4L2_CID_DV_RX_POWER_PRESENT, read-only */
+	u32 m_PictureReg;	/* last value written to the picture register, 0 = never */
+	struct v4l2_dv_timings dv_timings;	/* G/S_DV_TIMINGS */
+	/* last input state seen by the status thread, for source-change events */
+	bool src_signal;
+	int src_w, src_h, src_il;
 	//------------------------
 	int current_out_width;
 	int curren_out_height;
@@ -459,6 +468,13 @@ struct hws_pcie_dev {
 	u64       m_FrameEndNs[MAX_VID_CHANNELS];	/* set by irqhandler at the frame-end half */
 	u32       m_FrameSeq[MAX_VID_CHANNELS];	/* next frame number, under videoslock */
 	u32       m_FramesDropped[MAX_VID_CHANNELS];	/* READY frames overwritten or skipped */
+	/* input frame rate, measured from frame-end interrupts over ~1 s windows */
+	u64       m_RateWinStartNs[MAX_VID_CHANNELS];
+	u32       m_RateWinFrames[MAX_VID_CHANNELS];
+	u64       m_RateMinDeltaNs[MAX_VID_CHANNELS];	/* shortest frame interval in the window */
+	u64       m_FrameIntervalNs[MAX_VID_CHANNELS];	/* last measured, 0 = unknown */
+	uint8_t   m_ResumeVideo[MAX_VID_CHANNELS];	/* capture state saved across system sleep */
+	uint8_t   m_ResumeAudio[MAX_VID_CHANNELS];
 	uint8_t	  m_dwAudioField[MAX_VID_CHANNELS];
 	uint8_t   m_nAudioBusy[MAX_VID_CHANNELS];
 	uint8_t   m_nAudioBufferIndex[MAX_VID_CHANNELS];

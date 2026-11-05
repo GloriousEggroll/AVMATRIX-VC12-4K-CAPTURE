@@ -27,7 +27,7 @@
 #define BrightnessDefault  0x80
 #define ContrastDefault    0x80
 #define SaturationDefault  0x80
-#define HueDefault         0x00
+#define HueDefault         0x80	/* hardware reset value (register 91 reads 0x80808080) */
 
 typedef struct frame_size
 {

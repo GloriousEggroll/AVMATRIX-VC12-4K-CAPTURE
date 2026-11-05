@@ -17,6 +17,11 @@ if fuser "$DEV" >/dev/null 2>&1; then
     echo "$DEV is in use (close OBS first):"; fuser -v "$DEV"; exit 1
 fi
 
+# Store the live input's DV timings first. Otherwise v4l2-ctl sees "new timings"
+# at stream start and sets them, which (per V4L2) resets the format to the input
+# size and overrides the --set-fmt-video below.
+v4l2-ctl -d "$DEV" --set-dv-bt-timings query >/dev/null 2>&1 || true
+
 echo "## $(date -Iseconds)"
 echo "module srcversion: $(cat /sys/module/HwsUHDX1Capture/srcversion 2>/dev/null || echo not-loaded)"
 echo "repo HEAD: $(git -C "$HERE/.." rev-parse --short HEAD)"
