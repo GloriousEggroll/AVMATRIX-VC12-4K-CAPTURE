@@ -1,6 +1,6 @@
 # VC12-4K driver fixes and features
 
-This spec covers fixes and features for the HwsUHDX1Capture driver (AVMatrix VC12-4K, PCI `8888:8581`). It is split into a baseline and five stages, plus host settings outside the driver. Each stage lists its changes and how to check them. Stages 4 and 5 are proposals: some stage 4 items are experiments, and stage 5 depends on getting vendor binaries. [REGISTERS.md](REGISTERS.md) lists what is known about the card's registers.
+This spec covers fixes and features for the HwsUHDX1Capture driver (AVMatrix VC12-4K, PCI `8888:8581`). It is split into a baseline and seven stages, plus host settings outside the driver. Each stage lists its changes and how to check them. Stages 6 and 7 address the findings of the release audit in [AUDIT.md](AUDIT.md). The [upstream PR series](#upstream-pr-series) plans how the work goes upstream. [REGISTERS.md](REGISTERS.md) lists what is known about the card's registers.
 
 Line numbers refer to `src/hws_video.c` at commit `f40a4d5` (branch `fix/audio-batch-timing`).
 
@@ -25,9 +25,10 @@ A review of the driver against a running card (FPGA version 122, PCIe 2.0 x4) fo
   - `fix/video-delivery` (stages 0 and 1)
   - `feat/input-status` (stage 2)
   - `rework/single-copy` (stage 3)
-  - one new branch for each later stage
+  - `host/dkms` (H.4), `feat/hw-status` (stage 4), `host/irq-affinity` (H.2) and `feat/zero-copy` (4.4)
+  - `fix/release-audit` (stage 6) and `release/packaging` (stage 7), each on top of the one before
 
-  Each branch becomes one PR to upstream `main`, opened in order. After a PR merges, rebase the next branch onto upstream `main` so its PR shows only its own stage. The stages don't touch the audio code. Commits that change docs never change `src/`, so a PR can keep or drop the docs.
+  The stage branches are the fork's development history and stay as pushed. Upstream gets smaller PRs rebuilt from them: see [Upstream PR series](#upstream-pr-series). Commits that change docs never change `src/`, so the rebuilt PRs can leave the fork's docs out.
 - **Kernel compatibility.** Keep the existing `LINUX_VERSION_CODE` guards. Use only APIs that exist on 5.x and later: `kvmalloc`, `schedule_timeout_idle`, `vb2_is_busy`, `request_threaded_irq`, the `v4l2_*dv_timings*` helpers, `v4l2_src_change_event_subscribe`, `v4l2_ctrl_*`. Compile against every installed kernel's headers.
 - **Safety.**
   - Keep the IOMMU translating. It currently contains stray DMA writes (stage 3.5), but only while the stray address is unmapped. The card sits behind the chipset in IOMMU group 22, together with the SATA, USB, Wi-Fi and both Ethernet controllers. All devices in a group share one DMA address space. A stray write that hits a writable mapping of one of them goes through and corrupts that device's data without a fault (see H.5).
@@ -58,7 +59,7 @@ Record these on the unmodified driver, with no other app using the card, in `doc
 | 1.6 | **DMA sizing.** Allocate 4.5 MiB per DMA buffer: the largest quarter plus the audio area. Check that each buffer stays inside one 512 MiB address-table window. If the allocation fails (no IOMMU translation and no CMA), fall back to 4 MiB and clamp the input to 3840×2160. Restore the quarter-size check. A size that still doesn't fit is reported as no signal and never programmed into the DMA engine. |
 | 1.7 | **Status thread.** Sleeps with `schedule_timeout_idle()` inside a `kthread_should_stop()` loop. |
 | 1.8 | **Queue buffers.** Allocated with `kvmalloc` and freed with `kvfree`. The page-reservation loops and the `m_pVideoData_area*` fields are removed. |
-| 1.9 | **Ioctl deadlock.** Found by the stage 0 baseline. `hws_unlocked_ioctl` holds the device-wide `ioctl_lock` across `video_ioctl2` so it can swap `vdev->queue` to the caller's queue. A blocking `DQBUF` therefore holds that lock while it waits, and any other ioctl on the device blocks until a frame arrives, forever if streaming hasn't started. `v4l2-compliance` hangs this way. Fix: remove the queue swapping. Buffer ioctls, `poll` and `mmap` call vb2 on the caller's own queue under that queue's `qmutex`; `q->lock` is set on all kernels, so vb2 drops it while waiting. `vdev->lock` is cleared, so the V4L2 core takes no device lock. Format and parameter ioctls take `video_lock` themselves. |
+| 1.9 | **Ioctl deadlock.** Found by the stage 0 baseline. `hws_unlocked_ioctl` holds the device-wide `ioctl_lock` across `video_ioctl2` so it can swap `vdev->queue` to the caller's queue. A blocking `DQBUF` therefore holds that lock while it waits, and any other ioctl on the device blocks until a frame arrives, forever if streaming hasn't started. `v4l2-compliance` hangs this way. Fix: remove the queue swapping. Buffer ioctls, `poll` and `mmap` call vb2 on the caller's own queue under that queue's `qmutex`; `q->lock` is set on all kernels, so vb2 drops it while waiting. `vdev->lock` is cleared, so the V4L2 core takes no device lock. Every other ioctl runs under the device's `ioctl_lock`. |
 
 **Done when:**
 - With 4 buffers, delivery is 59.94 fps ±0.1 and every frame is unique.
@@ -122,7 +123,7 @@ The in-tree `hws` driver (`drivers/media/pci/hws`, built as `hws.ko` in this 7.2
 | 4.4 | **Zero-copy. Done (2026-10-19) on `feat/zero-copy`:** with a translating IOMMU, OBS at 4K60 gets its frames without a CPU copy (IRQ thread CPU 0 ms against 270 ms per 5 s), the copy path stays for everything else, and register 9 now follows the quarter size ([results.md](results.md#44-zero-copy-round-1-driver-821f2d1-srcversion-3538ea2396bf2c18a6e6c22)). **Probe positive (2026-10-19):** the card picks up new addresses in registers 16–19 for every frame. With the IOMMU translating, all four windows map 0xE0000000–0xFFFFFFFF, and a test buffer allocated by the driver landed inside them, so app buffers can be targeted without touching the table ([results.md](results.md#44-zero-copy-probe-driver-5c8ee4f)). Next: the feature, per the requirements below.<br><br> Since stage 3 each frame is copied once per consumer, from the DMA buffers into the app's buffer (0.13 ms per 1080p frame and about 1 ms per 4K frame on a 9950X3D). Removing that copy matters more on weaker CPUs and smaller caches than on the development machine.<br><br>Mainline captures straight into app buffers. Before each frame, it reprograms the channel's address-table entry (BAR0 + 0x208 + 8·ch) and buffer address (register 16 + ch), and also writes register 26 + ch. On this card a frame arrives as four quarters through buffer registers 16–19. Register 26 falls in the audio-address range (24 + i), so it is not the video target here. The Windows driver has no zero-copy path either.<br><br>**Probe:** between frames, point registers 16–19 and their table entries at the four quarters of a test buffer. Check that the next frame lands there, and that the card picks up new addresses every frame.<br><br>**If the probe works, the feature must work on any system, not just the development machine:**<br>- **Fallback.** The copy path stays. Zero-copy is chosen per queue at REQBUFS, only when every buffer meets the card's limits: each quarter contiguous in DMA address space, and inside one address-table window, which doesn't cross a 512 MiB boundary. Otherwise the queue uses the copy path, with one log line saying why.<br>- **With an IOMMU** (translated or passthrough), `dma-contig` buffers are contiguous in IOVA space from scattered pages.<br>- **Without one** (`iommu=off`, or an Intel or AMD board with it disabled in firmware), a 16.6 MiB 4K frame needs physically contiguous memory, which usually means CMA. Most distributions configure little or none, so expect the copy path there.<br>- **Consumers and sizes.** The card writes into one consumer's buffer. The driver copies only for extra consumers, decimated consumers and scaled sizes. MMAP and DMABUF keep working; USERPTR uses the copy path.<br>- **Tests.** Run with the IOMMU translated, which is the only mode allowed for the probe. After the probe works, also run with `iommu=pt`, and check that the copy-path fallback is chosen when allocations can't meet the limits (forced with a debug parameter). |
 | 4.5 | **Quantization.** With the Switch 2's RGB range on Automatic, Y spans 1–254, so the card delivered full range ([results.md](results.md)). The card's EDID marks both RGB and YCbCr quantization as selectable, so the console chooses the range; expect the card to pass it through.<br><br>**Done (2026-10-19):** it doesn't pass it through. The Switch 2 on Automatic, Limited and Full, and the PS5 on Limited (black at Y ≈ 1), all arrive full range: the card converts its input. The format now reports full-range Rec. 709. Find out whether that is fixed or follows the source: repeat the measurement with the console's RGB range set to Limited and to Full, on the Switch 2 and the PS5.<br>- If the card always delivers full range, report `V4L2_QUANTIZATION_FULL_RANGE` with Rec. 709 encoding.<br>- If it follows the source, keep the default and document the OBS setting per console. Detecting the range then needs the AVI InfoFrame (stage 5). |
 | 4.6 | **Mainline support.** Add `8888:8581` to the in-tree `hws` driver so the card works without DKMS. The Windows driver serves 8888:8591, 8888:85A1, 1F33:8581 and 1F33:8591 with the same code, and the 8591 adds a line-in audio input. That needs:<br>- a single channel;<br>- 4K input in quarters;<br>- the audio ring;<br>- this card's version-register layout;<br>- the stage 1–3 fixes mainline lacks.<br><br>Build it out of tree from `drivers/media/pci/hws` first, and run the stage 1 and 2 checks against it. Sending patches to linux-media is public: only when asked. |
-| 4.7 | **Upstream the fork's branches** to GloriousEggroll's repo: one PR per topic, rebased on upstream `main`, crediting PR #23. Only when asked. |
+| 4.7 | **Upstream the fork's work** to GloriousEggroll's repo as the [upstream PR series](#upstream-pr-series), crediting PR #23. Only when asked. |
 | 4.8 | **High refresh rates.** Retail listings give the input as up to 1440p144 and 1080p240, and the Windows driver offers capture modes up to 1440p144, 1080p240 and 720p240. The card's EDID advertises 1080p120, 1080p240, 1440p144 and 4096×2160p60, but not 1440p120 ([REGISTERS.md](REGISTERS.md#edid)), so a PS5 may only offer 120 Hz at 1080p. A PC's HDMI output can drive all of these modes for testing without a console.<br><br>**Survey done (2026-10-19, [results.md](results.md#stage-48-input-mode-survey-with-a-pc-source)):** 1080p240, 1440p144 and 1080p120 capture at full rate with no driver change. 4096×2160 arrives scaled to 3840×2160 and letterboxed by the card. What's left is the console check: which modes the PS5 and Switch 2 actually offer through this EDID.<br><br>**Done (2026-10-19):** the PS5 runs 120 Hz games at 1920×1080 at 119.88 Hz through this card, captured by OBS at 120 fps with 0.13 ms of CPU per frame ([results.md](results.md#48-120-hz-from-the-ps5-driver-2ef336a)). When the display's EDID advertises 120 Hz, the PS5 offers 1080p and 1440p at 120 Hz, and the Switch 2 offers 120 Hz in some games.<br>1. Survey which modes each console offers through the card (PS5: Settings → Screen and Video → Video Output Information).<br>2. Capture each one and run `framecheck.py` for the delivered rate, unique frames and DV timings.<br>3. Fix what breaks, such as the timings cap, the size table or rate snapping.<br><br>These modes fit the link: 1440p144 in YUYV is about 1.06 GB/s, close to the 1.0 GB/s that 4K60 already moves. When playing through the OBS preview, a 120 Hz capture halves the frame time, if OBS runs at 120 fps and the monitor refreshes at 120 Hz or more. |
 | 4.9 | **Register 9 and the start pause.** On FPGA 122 and later, the Windows driver writes its 5 MiB buffer size to register 9, in 16-byte units. It also pauses 500 µs between the 0x80000000 and 0x80FFFFFF start writes to register 0. This driver does neither.<br>- **Register 9: done in stage 3, with a different value.** An over-long quarter run ends at register 9 × 16 plus a 2 KiB block, so the Windows value (the buffer size) would put that block past the end of the buffer. The driver sets buffer size − audio ring − 2 KiB.<br>- Add the pause.<br>- Consider polling input status every 50 ms like the Windows driver (this driver uses 250 ms), so source changes are seen sooner. Each poll costs only a few register reads.<br><br>Then check that capture still works at every size, including 4096×2160. |
 | 4.10 | **Buzz while the source renegotiates.** On every console resolution change the card stops sending audio packets for 3–4 s (no audio interrupts), so the ALSA pointer stands still. PipeWire then re-delivers its last buffers of the card's audio over and over, a loop of 4864–5120 frames that is heard as a buzz. The same happens with no source, or with a source that sends no audio.<br>- **Fix:** once no packet has arrived for 40 ms (two packet periods), a delayed work delivers whole packets of silence at 48 kHz, counted from the last packet's time, until the card's packets resume.<br>- **Rejected first attempt:** muting packets whose content repeats. It never fired, because the driver never sees the loop.<br>- **Check:** `tests/staleaudio.py` lists replay loops and silence in a `pw-record` capture of the card's node. debugfs `status` counts the gaps filled. |
@@ -210,6 +211,211 @@ This stage needs vendor binaries that aren't public. AVMatrix publishes no SDK o
 - Vendor binaries are analysed, never run.
 
 **Done when:** `REGISTERS.md` covers every register the vendor driver uses, with meaning and confidence, and each candidate has a go or no-go with its evidence. Go items become numbered items with probes.
+
+## Stage 6: fixes from the release audit
+
+**Status (2026-10-20): stage 6 done.** Every item from 6.1 to 6.21 is closed on `fix/release-audit` and checked on the card, except 6.21, closed as a known issue. Results are in [results.md](results.md); the driver runs as DKMS `1.0.0.230324.6.9`. [AUDIT.md](AUDIT.md) has the evidence for each finding, with line numbers at `66d3773`. Each item below names the findings it closes. Items 6.1 to 6.4 and 6.14 must land before the first upstream PR (4.7) and before a public release (7.8).
+
+**Where the fixes go (decided 2026-10-19).** Stage 6 work goes on a new branch, `fix/release-audit`, on top of `feat/zero-copy`. Stage 7 goes on `release/packaging`, on top of that. No pushed branch is rewritten. Upstream never gets these branches as they are: the [upstream PR series](#upstream-pr-series) rebuilds them from upstream `main` in small PRs, and folds each stage 6 fix into the PR whose code it fixes.
+
+### Group A: crash fixes and safe defaults
+
+| # | Change |
+|---|---|
+| 6.1 | **Gate zero-copy and ship it off.** LINUX-001, introduced on `feat/zero-copy`. The operator agreed to off by default (2026-10-19).<br>- `hws_zc_wanted()` returns false unless `m_DeviceHW_Version` and `m_MaxHWVideoBufferSize` are both set. These are the conditions under which `hws_set_dma_max()` writes register 9.<br>- `zero_copy` defaults to off. Its description says it needs FPGA 122 or later and a translating IOMMU.<br>- When `zero_copy` is on but zero-copy can't run, the driver logs one line with the reason, and debugfs `status` shows it.<br>- On the development machine, a host setting outside the repo keeps it on: `options HwsUHDX1Capture zero_copy=1` in `/etc/modprobe.d/`. |
+| 6.2 | **No card re-init from the ALSA trigger.** LINUX-002, introduced by `46f7ec9` on `feat/hw-status`.<br>- `StartAudioCapture()` no longer calls `CheckCardStatus()`. Once 6.3 lands, the trigger is its only caller. It sets a flag instead when register 0 bit 0 is clear.<br>- At its next poll, within 50 ms, the status thread sees the flag and calls `InitVideoSys(pdx, 1)` under `cap_lock`, after it has moved zero-copy back to the DMA buffers.<br>- `StartVideoCapture()` runs in process context and keeps calling `CheckCardStatus()`. |
+| 6.3 | **The audio work never writes a missing buffer.** LINUX-004 and LINUX-011. Path 2 came with `483648e` on `feat/input-status`, and the rest is upstream.<br>- `audio_data_process()` delivers packets only while `running` is set and `ring_size_byframes` is nonzero. Otherwise it frees the queue slots.<br>- `hw_free` calls `cancel_work_sync()` on the audio work as well as on the silence work, and `close` clears `drv->substream`.<br>- The trigger handles SUSPEND as it handles STOP. The PCM drops `SNDRV_PCM_INFO_RESUME`, so `snd_pcm_resume()` returns -ENOSYS and apps prepare and restart the stream.<br>- `hws_resume()` no longer restarts audio capture. The app's next trigger START does that. |
+| 6.4 | **Unregister first, and free on the last close.** LINUX-003, upstream.<br>- `hws_remove()` runs in this order: set `m_PciDeviceLost`, call `snd_card_disconnect()` and `video_unregister_device()`, stop the status thread, stop the engines, free the IRQ, kill the tasklet, cancel the audio works, destroy `auwq`, free the DMA pool, unmap BAR0 and disable the device.<br>- `struct hws_pcie_dev` is freed only after the last V4L2 handle and the last ALSA handle close. A `kref` holds it. Probe takes one reference for itself, one for the `v4l2_device` and one for each sound card. Remove drops the first. The `v4l2_device` release callback and each card's `private_free` drop theirs.<br>- `snd_card_free_when_closed()` replaces `snd_card_free()`, so remove doesn't wait for PipeWire to close the PCM.<br>- Every register access that can run after remove checks `m_PciDeviceLost` first. Most already do. `hws_zc_program()` doesn't. |
+
+**Done when:**
+- In a test build that forces `m_DeviceHW_Version` to 0, debugfs reports zero-copy as unavailable, with the reason. On this card, `modinfo` shows `zero_copy` off by default, and `tests/zctest.sh` passes with `zero_copy=1`.
+- On the debug kernel (6.16), audio starts cleanly after the 6.10 test knob clears register 0 bit 0: no splat, and capture runs again within 100 ms.
+- An `arecord` running across `systemctl suspend` restarts its stream and keeps recording. An `arecord` stopped with SIGSTOP across a suspend and killed after the resume causes no oops. 10,000 audio start and stop cycles on the debug kernel cause no KASAN report.
+- With `v4l2-ctl --stream-mmap` and `arecord` running, 20 sysfs unbind and bind cycles on the debug kernel cause no KASAN or kmemleak report. Both apps exit with an error, and capture works after the last bind.
+
+### Group B: device lifecycle
+
+| # | Change |
+|---|---|
+| 6.5 | **Probe error paths.** LINUX-015.<br>- `hws_audio_register()` stores each card right after `snd_card_new()`, so its error path frees it.<br>- `hws_probe()` stops the status thread before it unregisters the video node. |
+| 6.6 | **A bounded busy wait.** LINUX-010. `Check_Busy()` gives up after 200 ms, logs one warning and returns -ETIMEDOUT. `StopDevice()` then carries on. |
+| 6.7 | **The status thread across suspend.** LINUX-016.<br>- The status thread is freezable (`set_freezable()`, and it freezes between polls), so it doesn't poll a suspended card.<br>- A read of 0xFFFFFFFF from register 8 counts as no HDCP, as a read of 0xFFFFFFFF from register 5 already counts as no signal. |
+
+**Done when:**
+- Three test builds each fail probe in a different place: `snd_pcm_new()`, `snd_card_register()`, and `hws_audio_register()` as a whole. Each probe fails cleanly, kmemleak reports nothing, and the next module load works.
+- In a test build that forces register 0 bit 3 set, remove finishes within 250 ms and logs one warning.
+- After five suspend cycles with OBS open, the journal has no "HDCP active" line.
+
+### Group C: zero-copy hardening
+
+These items come after 6.1, and 6.8 needs 6.9.
+
+| # | Change |
+|---|---|
+| 6.9 | **Wait for the DMA to stop.** R-02.<br>1. Probe, under the probe rules: with a debug module parameter and driver-owned buffers with guard areas, clear the video enable bit in the middle of a quarter run. Then watch the destination and its guard for 50 ms. Record whether writes land after the bit clears, and whether register 0 bit 3 follows DMA activity. Record the result in `results.md` and `REGISTERS.md`.<br>2. Then add `hws_video_quiesce()`. It clears the enable bit, reads register 2 back to flush the write, and then waits as long as the probe shows is needed: for bit 3 to clear, or for one frame period, at most 50 ms.<br>3. Every path that returns or frees a buffer the card may write calls it: the timeout path in `hws_stop_streaming_multi()`, `hws_suspend()`, `hws_remove()` and 6.8. |
+| 6.8 | **An input-size change with zero-copy active.** R-01.<br>- When capture is running, `ChangeVideoSize()` stops the engine with `hws_video_quiesce()`, releases any zero-copy buffers, programs the new lengths and register 9, and restarts the engine. The frame in flight is lost, as it is today. (First written for zero-copy only; the switch runs showed the card also finishing an old-size quarter into a DMA buffer after the canary refill, so it covers the copy path too. See `results.md`.)<br>- For this path the status thread takes `engine_lock` before `cap_lock`. `hws_start_streaming_multi()` takes them in the same order, so the change adds no lock inversion.<br>- An optional probe, for the record: point a driver-owned 1080p test buffer with a guard at the card, switch the source to 4K, and check the guard. The result tells whether the old code could overrun. |
+| 6.10 | **Debug features off by default.** LINUX-013.<br>- A new module parameter, `debug_dma`, defaults to off. It turns on the canary, the register snapshots, the stray-write log, and the test knobs that 6.2 and 6.11 need. With it off, the status thread doesn't scan.<br>- With `debug_dma` on, the scan runs without `cap_lock`. It holds the lock only to read `canary_start`.<br>- The scan logs the expected 2 KiB block at register 9 × 16 as an over-long run, not as a stray write. |
+| 6.11 | **No repeated frame for the zero-copy consumer.** LINUX-014. At a top half that uses a zero-copy buffer, the driver completes any copy buffer held by the same consumer with `VB2_BUF_STATE_ERROR` before it copies. |
+
+**Done when:**
+- The 6.9 probe result is in `results.md` and `REGISTERS.md`.
+- With `zero_copy=1`, run 20 source switches between 1080p and 4K in each direction, with the app capturing at the starting size. The kernel logs no `IO_PAGE_FAULT`, `debug_dma=1` reports no stray write, and `framecheck.py` shows no repeated sequence number.
+- With `debug_dma=0`, 20 console mode changes log no "stray DMA write" line.
+- The IRQ thread's wakeup latency at 1080p240 is recorded with `debug_dma` off and on, using `perf sched latency` or ftrace.
+
+### Group D: hardware compatibility and API use
+
+| # | Change |
+|---|---|
+| 6.12 | **Leave Relaxed Ordering to the PCI core.** LINUX-005. Remove `enable_pcie_relaxed_ordering()` and its call. |
+| 6.13 | **No DMA sync calls on coherent memory.** LINUX-012. Remove the `dma_sync_single_for_cpu()` calls on the coherent DMA buffers. Add `dma_rmb()` where the code reads DMA data after a register read: at the start of `hws_video_half()`, and before the packet copy in `MemCopyAudioToSteam()`. |
+| 6.14 | **Untested PCI IDs and interrupt bits.** R-03.<br>- The interrupt handler writes back every bit it reads from register 1, so no enabled source stays set. A debugfs counter counts bits other than 0 and 8. Bit 12 is the 8591's line-in audio, per `REGISTERS.md`.<br>- The three untested IDs keep matching, because upstream already claims them. On those IDs, probe logs one line saying the model is untested, and the 6.1 gate keeps zero-copy off. `README.md` lists them as untested (7.2). |
+| 6.15 | **Catch a half the card overwrote during the copy.** R-06. When the copy of a half ends later than one half-frame interval after its interrupt, the frame completes with an error, and a debugfs counter counts it. The zero-copy code already keeps that interval. |
+
+**Done when:**
+- On this machine, `lspci -vv` shows `RlxdOrd` as the PCI core leaves it. A 10-minute 4K60 capture on each path gives the same `framecheck.py` result as the stage 3 and 4.4 runs.
+- The debug kernel (6.16) logs no DMA API warning from the driver.
+- On this card, the unknown-interrupt counter stays at 0 through a 10-minute capture.
+- Under `stress-ng --cpu 0`, at 4K60 and at 1080p240, the late-copy counter rises, and the sequence gaps in `framecheck.py` match it.
+
+### Group E: verification and cleanup
+
+| # | Change |
+|---|---|
+| 6.16 | **A debug-kernel pass.** This needs a kernel with `CONFIG_PROVE_LOCKING`, `CONFIG_DEBUG_ATOMIC_SLEEP`, `CONFIG_DMA_API_DEBUG`, `CONFIG_KASAN` and `CONFIG_DEBUG_KMEMLEAK`. Installing one is a host change, so it needs the operator's OK. Run the checks in groups A to D that name the debug kernel, `tests/zctest.sh`, and `v4l2-compliance -s` with no other app open. |
+| 6.17 | **A hardware validation pass.** R-04 and R-05. Record each result in `results.md`:<br>- the resolution matrix: 720p, 1080p, 1440p, 4K, 1080p120 and 1080p240, switched in both directions, with `zero_copy` off and on;<br>- `iommu=pt` and `iommu=off`: zero-copy reports unavailable and the copy path delivers. With the IOMMU off, the 4 MiB fallback captures 4096-wide input at 3840;<br>- a 44.1 kHz source, such as a PC's HDMI output set to 44.1 kHz: the rate and pitch the card delivers;<br>- a second machine that isn't an X3D part, if one is available. Otherwise record this as not done;<br>- an 8-hour OBS session at 4K60: memory use, `IO_PAGE_FAULT` count, PipeWire errors, and the delivered rate at the start and the end. |
+| 6.19 | **Recover a lost run state while capturing.** Found in the 6.2 test: only an audio start noticed that register 0 bit 0 had cleared, so video stayed stopped without one. The status thread now checks the bit on every poll while either engine runs, and re-initialises the card in the same poll. Folds into PR-17 with 6.2. |
+| 6.20 | **Drop the stale audio packets at an audio start.** Found in 6.17: every capture began with one or two packets (1,024 frames each, 21–43 ms) of the audio the card captured before the last disable, even across a module reload. Clearing the driver's ring didn't help, so the card itself sends them. `StartAudioCapture()` now drops the first two packets; the silence fill covers any gap. Test: alternate 1 kHz and 500 Hz tones from the PC's HDMI output with a capture of each; every capture starts with its own tone. |
+| 6.21 | **GPU lost during HDMI mode changes while capturing. Closed as a known issue (2026-10-20), see `results.md`.** Found in 6.17 and 6.10: three times the PC's GPU dropped off the PCIe bus while its HDMI output to the card changed mode, locking up the desktop: twice during a capture, once with nothing capturing 3 s after a driver reload. About 66 changes with no capture and no reload just before, and 120 Switch 2 changes during capture, never did. Find whether 6.8's engine restart (`bf3ede3`) is involved: with the operator's OK, make GPU mode changes during a capture with DKMS 6.3 (before `bf3ede3`). If 6.3 never loses the GPU, rework the restart; if it does, record it as a receiver or amdgpu limit in the README. Evidence in `results.md` (6.17). |
+| 6.18 | **Remove dead code.** LINUX-020. This item comes last in the stage, so it can't conflict with the fixes. Remove the per-device queue and its ops, the unused fields, definitions and includes, and the `#if 0` blocks. The fixed-size scalers stay. |
+
+**Done when:**
+- The debug kernel logs no report that names the driver during 6.16.
+- Each 6.17 result is in `results.md`. A failure there becomes a new numbered item.
+- After 6.18, the stage 2 and 4.4 checks give the same results as before, and the W=1 build logs fewer warnings.
+
+## Stage 7: public release
+
+**Status (2026-10-19): planned.** Stage 7 covers what a user outside the development machine needs. It changes scripts, docs, the build files and CI. Under `src/` it changes only `src/Makefile`. Item 7.8 is the release itself and comes last.
+
+| # | Change |
+|---|---|
+| 7.1 | **One install and one uninstall path.** LINUX-006, LINUX-007 and LINUX-009.<br>- `install.sh` installs through DKMS only. It copies a clean tree into `/usr/src/HwsUHDX1CaptureForLinux-<version>/`, then runs `dkms add`, `dkms build` and `dkms install`. If `mokutil --sb-state` reports Secure Boot on, it prints the steps to enrol the DKMS signing key.<br>- The release version sorts above the development versions (`1.0.0.230324.<stage>.<n>`), so DKMS builds it for new kernels.<br>- `uninstall.sh` removes every `HwsUHDX1CaptureForLinux` version and the old `HwsUHDX1Capture.ko` package from DKMS. It deletes `/usr/local/share/HWS`, the `/usr/bin/hws-*.sh` links, the old `/usr/src` link, and any `HwsUHDX1Capture.ko*` left under `/lib/modules/`. Then it runs `depmod` for each kernel. It asks for a reboot only if `/sys/module/HwsUHDX1Capture` exists.<br>- `scripts/` is removed. `install.sh` and `uninstall.sh` at the top level hold the logic, and the top-level `dkms-install.sh` calls `install.sh`.<br>- `tools/dkms-install.sh` gets a `--remove <version>` option. At a kernel whose build link points nowhere, it warns and skips that kernel.<br>- Every script quotes its expansions, re-runs itself with `exec sudo "$0" "$@"`, writes no file in the working directory, and passes shellcheck. |
+| 7.2 | **User documentation.** LINUX-008. `README.md` becomes the user guide. It covers:<br>- a known issue (6.21): with the PC's own GPU feeding the card, changing that output's resolution while capturing, or just after the driver loads, has made an RX 9070 drop off the PCIe bus and lock up the desktop; consoles and other PCs as sources aren't affected as far as tested;<br>- the supported hardware: 8888:8581 tested with FPGA 122, the other IDs untested, and x86-64 as the only tested architecture;<br>- the kernels and distributions, as listed by 7.4;<br>- the packages each distribution needs, as checked in the 7.1 VMs;<br>- Secure Boot and MOK enrolment;<br>- install, a first check (`v4l2-ctl --list-devices`, `arecord -l` and the kernel log), upgrade and uninstall;<br>- OBS setup: the device "HUHDVideo 1", Color Range Full, and the audio source;<br>- `zero_copy`: what it does, when it is safe, and how to turn it on;<br>- troubleshooting: no device, "Key was rejected by service", blue frames with no signal, black frames with HDCP, and silence while the source changes mode;<br>- the limitations: YUYV only, one input, 48 kHz stereo audio, no HDR or 10-bit, input up to 3840×2160 at 60 Hz and 1920×1080 at 240 Hz (the card scales a 4096×2160 source to 3840×2160), and CPU scaling for any output size other than the input's.<br><br>`quick_start.txt` and `doc/` are vendor material. The README either marks them as vendor material, or they are removed. The developer docs in `docs/` get one line in the README. |
+| 7.3 | **Licence terms. Dropped (operator decision, 2026-10-19):** the licence stays as it is. LINUX-018 stays recorded in the audit, with no change planned. |
+| 7.4 | **A CI build matrix.** LINUX-019 and R-07.<br>- A GitHub Actions workflow on the fork builds the module in containers against the kernel headers of Fedora (current), Ubuntu 24.04 and 22.04, Debian 12, Arch (current), and CentOS Stream 9 and 10. CentOS Stream covers RHEL's backported APIs.<br>- Each job passes the header directory to `make` explicitly, because `uname -r` in a container returns the host's kernel.<br>- The same workflow runs shellcheck on every script, plus the Python tests that need no card and the 7.5 tests. It reports checkpatch results without failing on them.<br>- Pushing the workflow to the fork is the operator's call.<br>- Where the code fails on an older kernel, it either gets a version guard or the minimum kernel rises. The README says which. |
+| 7.5 | **Tests without the card.** LINUX-019. Move the pure calculations into functions that a userspace harness can build, and test them under ASan and UBSan:<br>- the quarter sizes from `SetVideoFormteSize()`;<br>- the bound in `hws_zc_buffer_ok()`;<br>- the rate snapping in `hws_input_timeperframe()` and the windows in `hws_frame_end()`;<br>- the preset match in `hws_query_timings()`;<br>- the zero-copy release counters;<br>- that every scaler writes exactly `out_w × out_h × 2` bytes. |
+| 7.6 | **Probe tools check the device.** LINUX-017. `tests/regprobe.py` requires `--pci`. It refuses to run unless that device's `vendor` and `device` files read 0x8888 and 0x8581, and the driver bound to it is `HwsUHDX1Capture`. `tests/zctest.sh` finds the device under `/sys/bus/pci/drivers/HwsUHDX1Capture/`, as `tools/irq-affinity` does. |
+| 7.7 | **Build hygiene.** LINUX-021. Add a `.gitignore` for build output, `hws_install.log` and `__pycache__`. `src/Makefile` uses `ccflags-y` and drops `EXTRA_LDFLAGS`. `src/load.sh`, which nothing references, is removed. |
+| 7.8 | **The release.**<br>- A `CHANGELOG.md` lists the user-visible changes of each stage.<br>- A `SECURITY.md` gives a contact that the maintainer chooses.<br>- A tag `v<version>` matches `PACKAGE_VERSION` in `src/dkms.conf`.<br>- The release notes list the tested hardware, the tested kernels and the limitations.<br>- The release needs 6.1 to 6.4, 6.14, 7.1, 7.2 and 7.4. |
+
+**Done when:**
+- **7.1:** In VMs running Fedora 44, Ubuntu 24.04 and Arch Linux: install, reboot, and `modinfo HwsUHDX1Capture` shows the release version. Then uninstall: `modinfo` fails, `dkms status` lists nothing for the driver, and none of the paths in 7.1 exist. Both scripts work when run from `/tmp/a b/`. On this machine with the card: install over the development versions, reboot, and OBS captures.
+- **7.2:** Someone who hasn't worked on the driver follows the README alone on a fresh VM to a working install. Every command in the README has been run.
+- **7.4:** The workflow passes, and the README's kernel list comes from it.
+- **7.5:** `make -C tests/unit check` passes in CI. Each test fails when the bound it checks breaks, for example with `HWS_ZC_SLACK` below 4096, the smallest slack that fits every input size.
+- **7.6:** A run with another device's address exits before it opens `resource0`.
+- **7.7:** After a build and a test run, `git status` is clean, and the W=1 build log is unchanged.
+- **7.8:** The tagged tree passes CI and installs in the 7.1 VMs.
+
+## Upstream PR series
+
+**Status (2026-10-19): planned.** Upstream gets the fork's work as small PRs, so its maintainer can review it in pieces and stop after any PR. Nothing is opened until the operator asks (4.7). PR numbers here are plan numbers, not GitHub numbers.
+
+### How the PRs are built
+
+- **Rebuilt, not pushed as is.** Each PR has its own branch, `pr/NN-<topic>`, cut from the previous PR's branch, or from upstream `main` for a PR that stands alone. Its commits are cherry-picked from the stage branches, which stay as they are.
+- **Fix-ups are folded in.** A fork commit that fixes an earlier commit in the same PR is squashed into it, so a reviewer never reads a bug and then its fix. A stage 6 fix for a defect that a fork commit introduced is squashed into that commit too. A stage 6 fix for a defect that upstream `main` already had stays a commit of its own, in the PR the table names.
+- **Size.** Each PR has one topic, at most five commits, and at most about 400 changed lines, not counting deleted lines. PR-14 and PR-22 are larger, because each is a single design change. Their descriptions explain them part by part.
+- **Every commit builds** on every kernel in the CI matrix (7.4). Until 7.4 exists, every commit builds on every installed kernel with `tests/build-all-kernels.sh`. If a cherry-pick conflicts, resolve it by hand and build again.
+- **Every PR's tip runs on the card** before the PR opens. Install it as its own DKMS version with `tools/dkms-install.sh`, then reboot. Run a 300-frame `v4l2-ctl` stream through `framecheck.py` and 10 seconds of `arecord`, then the PR's own checks. Upstream may merge a PR and stop there, so every tip has to work on its own.
+- **Only `src/` changes go into the driver PRs.** A source commit that also added a file elsewhere loses that part: `2d8e283` added `tests/quarter_sizes.py`, and `1f3e39a` added `tests/staleaudio.py` and changed `docs/SPEC.md`. Test files go to PR-29.
+- **The fork's docs stay on the fork.** `docs/` holds this spec, the results, the register map and the audit, and none of it goes into a PR. A description can link to these files on the fork for detail, but it must make sense without them.
+- **Commit messages for upstream.** Remove references that only make sense on the fork: spec item numbers, probe numbers, `results.md` and stage names. Keep what changed, why, and how it was tested. Keep the `Co-Authored-By` trailers.
+
+### Writing the PR description
+
+The operator writes each description, short and in their own words. Reviewers distrust long generated text. Explain every change plainly instead. A description has five parts:
+
+1. **Problem.** What a user sees on current `main`, and how to reproduce it, in one or two sentences and a command.
+2. **Changes.** One bullet per commit: what it changes, why, and in which functions. A large commit gets a short paragraph for each part.
+3. **Testing.** The hardware, kernel and source used, the commands that were run, and the results. Give numbers where they matter, such as fps, unique frames or fault counts.
+4. **Not covered.** What wasn't tested, and the known caveats.
+5. **Related.** The PR this one depends on, and any PR it supersedes or credits, such as upstream PR #23.
+
+Before a PR opens, walk through its diff hunk by hunk until you can explain each hunk without notes. If you can't explain a hunk, resolve it first: simplify it, explain it in a code comment, or drop it. Each PR's bead lists the review questions to expect.
+
+### The series
+
+The order follows the development history, so the cherry-picks apply with few conflicts. A PR depends on the one before it unless the last column says it stands alone. Hashes are fork commits. "+ 6.n" marks a stage 6 fix, folded in by the rules above. Sizes are the sum of `git show -w --shortstat -- src` over the fork commits before squashing. "New" means code that stage 6 or 7 hasn't written yet.
+
+**Series 1: fixes upstream can take on their own**
+
+| PR | Topic | Fork commits | Added / removed | Order |
+|---|---|---|---|---|
+| PR-01 | Audio: report the pointer as coarse (BATCH), with periods in whole packets | `f40a4d5` | 25 / 4 | stands alone |
+| PR-02 | The status thread sleeps idle; frame-queue buffers come from `kvzalloc` | `890ff94`, `a319e19` | 48 / 268 | stands alone |
+| PR-03 | DMA buffers sized for 4096×2160; an oversized quarter is never programmed | `2d8e283` | 88 / 23 | after PR-02 |
+| PR-04 | Per-queue locking, so a blocking DQBUF can't hang other ioctls | `23392ec` | 151 / 58 | after PR-03 |
+| PR-05 | Refuse format changes while buffers exist; count a handle closed only after its queue is gone | `49080f5`, `182c304` | 42 / 9 | after PR-04 |
+| PR-06 | One frame per consumer, timestamps at frame end, and stop waits for in-flight buffers | `8f5cb58`, `68f0c92`, `7cc4188` | 193 / 188 | after PR-05 |
+| PR-07 | Unique `bus_info`, the correct 720×576 entry, and no `read()` stub | `c89526e` | 5 / 12 | after PR-06 |
+
+**Series 2: input status**
+
+| PR | Topic | Fork commits | Added / removed | Order |
+|---|---|---|---|---|
+| PR-08 | Measure the input frame rate and report it in `G_PARM` | `00f59a5` + `f3da7f7` | 87 / 7 | after PR-07 |
+| PR-09 | Picture controls through the control framework, applied in hardware, without hue | `ec373f1` + `1a794ea` | 71 / 527 | after PR-08 |
+| PR-10 | Offer the input's native size, and follow it while idle | `a9ef468` | 117 / 125 | after PR-09 |
+| PR-11 | Frame intervals from the input rate; per-consumer `S_PARM` | `c466a2f` | 70 / 81 | after PR-10 |
+| PR-12 | DV timings, signal status, source-change events, `log_status` and the power-present control | `5af2e2b` + `9f6cab6` + `4a87a38`, `b8cb4e6`, `ddc7606` | 264 / 45 | after PR-11 |
+| PR-13 | Suspend and resume | `483648e` + 6.3 (SUSPEND and resume), 6.7 (freezable thread), 6.9 | 62 / 0, plus new | after PR-12 |
+
+**Series 3: capture rework**
+
+| PR | Topic | Fork commits | Added / removed | Order |
+|---|---|---|---|---|
+| PR-14 | A threaded IRQ copies each half straight into app buffers; the frame queue goes | `cae50c6` | 318 / 734 | after PR-13 |
+| PR-15 | Probe and remove: ordering, error paths, interrupt flags, unregister first, free on the last close | `5bd61fb`, 6.4, 6.5, 6.6 | 107 / 231, plus new | after PR-14 |
+| PR-16 | debugfs status; the canary and register snapshots behind `debug_dma` | `fa5b301`, `8a67155` + `df0a168` + 6.10, `bf69f64` | 309 / 10 | after PR-15 |
+| PR-17 | No DMA run past a buffer: lengths before start, register 9 and the start pause; no re-init from the PCM trigger | `7df0340`, `a3fe62e`, 6.2, `46f7ec9` | 60 / 13, plus new | after PR-16 |
+
+**Series 4: hardware status and audio**
+
+| PR | Topic | Fork commits | Added / removed | Order |
+|---|---|---|---|---|
+| PR-18 | The card's frame rate while idle (register 110); poll every 50 ms | `479286e`, `2ef336a` | 48 / 14 | after PR-17 |
+| PR-19 | Black frames while the source uses HDCP | `12e91c5` + 6.7 (0xFFFFFFFF part) | 42 / 3 | after PR-18 |
+| PR-20 | Report full-range Rec. 709 | `96dd3f1` | 8 / 0 | after PR-19 |
+| PR-21 | Audio: silence while the card sends none; never write a stopped stream's buffer | `1f3e39a`, 6.3 (work guards) | 88 / 0, plus new | after PR-20 |
+
+**Series 5: zero-copy**
+
+| PR | Topic | Fork commits | Added / removed | Order |
+|---|---|---|---|---|
+| PR-22 | Zero-copy into an app's buffers, off by default | `821f2d1` + 6.1 + 6.8 + 6.11. `7c64b98` is left out. | 380 / 16, plus new | after PR-21 |
+
+**Series 6: hardening and cleanup**
+
+| PR | Topic | Fork commits | Added / removed | Order |
+|---|---|---|---|---|
+| PR-23 | PCI: leave Relaxed Ordering to the core, no sync calls on coherent memory, acknowledge every interrupt bit, flag untested IDs | 6.12, 6.13, 6.14 | new | after PR-22 |
+| PR-24 | Fail a frame whose half was overwritten during the copy | 6.15 | new | after PR-23 |
+| PR-25 | Remove dead code | 6.18 | new | after PR-24 |
+
+**Series 7: packaging and tests**
+
+| PR | Topic | Fork commits | Added / removed | Order |
+|---|---|---|---|---|
+| PR-26 | One install and uninstall path through DKMS; a `.gitignore` | 7.1, 7.7 (`.gitignore`) | new | stands alone |
+| PR-27 | CI build matrix; `ccflags-y` in the Makefile | 7.4, 7.7 (Makefile) | new | stands alone |
+| PR-28 | Unit tests without the card | 7.5 | new | after PR-25 |
+| PR-29 | Test scripts: `framecheck.py`, `run-baseline.sh`, `build-all-kernels.sh`, `zctest.sh`, `quarter_sizes.py` and `staleaudio.py`. Optional: ask upstream first. | `7243fdf`, `8c7644d`, `8def62a`, `7864119`, the test files of `2d8e283` and `1f3e39a`, and 7.6 | tests only | after PR-22 |
+| PR-30 | The README as a user guide | 7.2 | new | after PR-25, PR-26 and PR-27 |
+| PR-31 | `tools/irq-affinity`, the opt-in IRQ placement helper. Optional: ask upstream first. | `f1df86b` | tools only | stands alone |
+
+**Opening the PRs.** Open one series at a time. Within a series, open each PR when the one before it merges, or open the next one marked "depends on" the previous. After a merge, rebase the remaining PR branches onto upstream `main`. When a reviewer asks for a change, make it on that PR's branch, then rebase the PR branches after it. PR-06 supersedes upstream PR #23, so comment on #23 and credit its author before PR-06 opens.
 
 ## Host integration
 

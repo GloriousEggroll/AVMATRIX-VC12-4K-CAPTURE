@@ -383,3 +383,382 @@ PS5 at 3840×2160p59.94, OBS closed, IOMMU `DMA-FQ`. `tests/zctest.sh` ran 600 f
 | PS5 to 1080p and back to 4K | Zero-copy stepped aside for the switch and came back by itself at 4K, again with 0 ms CPU. One zero-copy frame completed with an error (the frame in flight at a switch); no late writes. The canary logged two 2 KiB blocks in DMA buffer 0, at 0xfe000 and 0x3f5000. Those are register 9 × 16 for the 1080p and 4K quarters, the new cap. Before register 9 followed the quarter size, the same switches wrote runs up to 0x47d7ff. |
 | Suspend and resume with OBS open | Card re-initialised and the picture came back. Zero-copy resumed with no failures or late writes. OBS's consumer counted 93 frames with no buffer queued, once, right after the wake-up, before OBS had re-queued its buffers. |
 | Kernel log | No `IO_PAGE_FAULT`, no warnings |
+
+## Stage 6: first session (driver `47006b7`, srcversion `ECF3B4B0DE67246B58F850D`)
+
+DKMS version `1.0.0.230324.6.0` on 7.2.10, with `zero_copy=1` set in `/etc/modprobe.d/hws.conf` (6.1 makes it default off). Operator session on 2026-10-19: OBS capturing the Switch 2 at 3840×2160, the console switched to 1080p and back, then three suspend and resume cycles.
+
+- **Operator:** picture and audio normal throughout, including after each resume. No audio problem at the resolution changes.
+- **Kernel log, this boot:** no `IO_PAGE_FAULT`, no BUG or WARNING line, no "HDCP active" line across the three suspends (6.7), and no "zero_copy is on but unavailable" line (the 6.1 gate passes on this card). Each resume logged "resumed, card re-initialised".
+- **debugfs `status`, after the session:**
+
+| Counter | Value |
+|---|---|
+| Frames / lost | 6534 / 3 |
+| Zero-copy frames / failed / late writes | 5887 / 0 / 0 |
+| Interrupt sources other than bits 0 and 8 (6.14) | 0 |
+| Frames failed for a late copy (6.15) | 0 |
+| Audio gaps filled with silence | 3 |
+
+- **`modinfo`:** `zero_copy` and `debug_dma` both describe themselves as default off.
+- **`lspci -vv`:** `RlxdOrd+` on the card, now as the PCI core leaves it (6.12 removed the driver's write).
+- **Seen in passing:** each rate-limited `LOG_STATUS` call still prints the V4L2 core's empty "START STATUS" and "END STATUS" lines. Cosmetic.
+- **Not yet run:** the 6.2 simulated reset, the 6.3 SIGSTOP and start/stop tests, the 6.4 unbind test, the 6.6 and 6.5 test builds, `framecheck.py` runs, and the debug-kernel pass (6.16).
+
+## Stage 6: automated checks (driver `47006b7`)
+
+Run on 2026-10-19 with OBS closed, the Switch 2 sending 3840×2160p60 and `zero_copy=1`.
+
+| Check | Result |
+|---|---|
+| `framecheck.py`, 4 buffers, 300 frames, 3840×2160 (zero-copy) | 60.00 fps, 300 of 300 unique, no gaps, deltas 16.66–16.68 ms |
+| Same at 1920×1080 (CPU scaler) | 60.00 fps, 300 of 300 unique, no gaps |
+| Two 4K streams at once, 300 frames each | both 60.00 fps, 300 of 300 unique, no gaps |
+| Two 4K streams at once, 600 frames each, compared by sequence number | the frames of both streams are identical for every one of the 600 sequence numbers, and all 600 are unique |
+| `tests/zctest.sh`, run twice | every case 60.00 fps with no gaps; IRQ thread 0 ms for zero-copy against 430–440 ms for the copy path; 100 start/stop cycles all passed; no `IO_PAGE_FAULT`, canary hit or WARNING |
+| `v4l2-compliance -s` | 58 of 59; the failure is the by-design `reqbufs != EBUSY` for a second handle |
+| 1,000 ALSA capture start/stop cycles of 512–2048 frames on `hw:0,0` | none failed; no BUG, WARNING or oops |
+| 50 rounds: `arecord` stopped with SIGSTOP mid-capture, then killed | no oops; the card records normally afterwards |
+| 9.5-minute 4K capture (34,200 frames) | 59.999 fps, no sequence gaps, deltas 16.45–16.88 ms, no frame lost; 34,197 zero-copy frames, 0 failed, 0 late writes; other interrupt sources 0; late copies 0 |
+
+- **Unique-frame counts in `zctest.sh`:** the second run gave 401 of 600 unique frames in every case, including the copy path with zero-copy off. The source was repeating frames at that point. The per-sequence comparison shows the two consumers receive identical frames, so this isn't a driver effect.
+- **Buffers outside the window:** debugfs counted 174 during the `zctest.sh` runs (0 before them). Those buffers used the copy path, which is the designed fallback, but zero-copy round 1 saw none. The debug-kernel pass below shows it comes from the 100 start/stop cycles.
+
+## Stage 6: unbind test (6.4)
+
+Run on 2026-10-19 with OBS closed. Commands: `echo 0000:0b:00.0 | sudo tee /sys/bus/pci/drivers/HwsUHDX1Capture/unbind`, and the same with `bind`.
+
+- **Driver `47006b7`, nothing open:** unbind and bind returned at once; `/dev/video0` and the ALSA card went away and came back; the kernel log showed only the probe line.
+- **Driver `47006b7`, a 4K zero-copy stream (`v4l2-ctl --stream-mmap=4`) and `arecord` running:** unbind returned at once, and `arecord` exited with "File descriptor in bad state". `v4l2-ctl` stayed blocked in DQBUF, because nothing woke it, until it was killed with SIGKILL. It then exited without a D state or any kernel message, so closing after remove is safe. Fixed in `5815209`: remove() calls `vb2_queue_error()` on every open queue.
+- **Driver `5815209`** (DKMS `1.0.0.230324.6.1`, srcversion `6A47E2DE4A0F57F50595CB5`, loaded with `modprobe` while the card was unbound, no reboot): with both streams running, `v4l2-ctl` now gets `VIDIOC_DQBUF: Input/output error` and exits by itself.
+- **20 cycles** of bind, start both streams, wait 1–2 s, unbind, on `5815209`: all 20 unbinds returned, every app exited by itself within 1 s, and the kernel log had no BUG, WARNING, oops, refcount, hung-task or `IO_PAGE_FAULT` line. After the last bind: 4K capture at 60.00 fps, 300 of 300 unique, no gaps, and `arecord` records. The IRQ placement helper (H.2) re-pinned IRQ 202 to CPUs 8–15 and 24–31 after each bind.
+- **Not covered:** KASAN and kmemleak (not in this kernel; 6.16).
+
+## Stage 6: debug-kernel pass (6.16)
+
+The repositories carry no debug kernel, so one was built on 2026-10-19: `7.2.10-hwsdebug`, from the Nobara source package (the same CachyOS tree and Nobara patches as `7.2.10-200`), with the running config cut down by `localmodconfig`, plus `CONFIG_KASAN` (generic, inline), `CONFIG_DEBUG_KMEMLEAK`, `CONFIG_PROVE_LOCKING`, `CONFIG_DEBUG_ATOMIC_SLEEP` and `CONFIG_DMA_API_DEBUG`. It was booted once with `grub2-reboot`. Driver `5815209` (DKMS `1.0.0.230324.6.1`), `zero_copy=1`, OBS closed.
+
+| Check | Result |
+|---|---|
+| Boot and probe | the card probed normally; no report naming the driver |
+| 20 unbind/bind cycles with a 4K zero-copy stream and `arecord` open | all apps exited by themselves; 300 frames after the last bind |
+| 2,000 ALSA start/stop cycles | none failed |
+| `tests/zctest.sh` | every case passed; 0 failed, 0 late writes; 174 buffers outside the window during the start/stop cycles (see below); no `IO_PAGE_FAULT` or WARNING |
+| `v4l2-compliance -s` | 58 of 59, the same by-design failure |
+| KASAN, atomic-sleep and lockdep reports naming the driver | 0 |
+| DMA API reports naming the driver | 0 |
+| kmemleak, after the unbind cycles and again after the other tests | 0 unreferenced objects |
+
+- **Reports from elsewhere:** a suspicious-RCU warning in `kernel/sched/fair.c` 1.5 s into boot, before the driver loads, and a DMA API warning from `udmabuf`, used by `kwin_wayland`. Neither involves this driver.
+- **Buffers outside the window:** 0 through the four streaming cases, then 174 during the 100 zero-copy start/stop cycles, the same count as on the normal kernel. So it reproduces on a fresh boot and comes from rapid open, stream, close cycles. Those frames used the copy path, the designed fallback. Likely cause, inferred and not measured: with the IOMMU in `DMA-FQ` mode, freed addresses are reused only after the flush queue empties, so quick reallocations get lower addresses, below the card's 512 MiB window. 6.17 checks this.
+- **Not covered here:** the suspend tests, since the debug kernel was booted only once.
+- **Removed 2026-10-19,** after 6.8: the kernel, its modules, its DKMS builds and the build tree. `hws_video_quiesce()` and the 6.8 engine restart came after this pass, so lockdep hasn't seen the status thread taking `engine_lock` before `cap_lock`; by reading, every path that takes both takes them in that order.
+
+## Stage 6: simulated card reset (6.2)
+
+On the debug kernel `7.2.10-hwsdebug` (with `CONFIG_DEBUG_ATOMIC_SLEEP` and lockdep), driver `5815209` loaded with `debug_dma=1` and `zero_copy=1`. Writing to debugfs `simulate_reset` sets register 0 to 0x10, which clears the run bit.
+
+- **Idle:** reset, then `arecord` for 3 s. The driver logged "card had lost its run state; re-initialised", and 144 audio packets arrived in 3 s (full rate is about 141). No atomic-sleep, lockdep or KASAN report.
+- **During a 4K zero-copy stream:** reset at frame 185, then `arecord` 1 s later. Video stopped at the reset. The two zero-copy buffers in flight completed with an error. The re-init followed the audio start, and frames resumed at sequence 187 (one dropped), 1.1 s after the reset, at 16.67 ms spacing. No report from the checkers; zero-copy 0 failed, 0 late writes.
+- **Gap found:** only an audio start notices a lost run state. Without one, video would stay stopped. Follow-up: let the status thread check the run bit on every poll while capture runs.
+- **Video only, driver `af5925d` (6.19, DKMS `1.0.0.230324.6.2`):** reset during a 4K zero-copy stream with no audio started. The status thread re-initialised the card on its own; the stream's longest gap was 67 ms, one in-flight buffer completed with an error, and no sequence number was skipped. No checker report.
+
+## Stage 6: suspend tests (6.3, 6.7)
+
+Driver `af5925d` (DKMS `1.0.0.230324.6.2`) on 7.2.10, `zero_copy=1`, OBS closed. Each suspend is deep sleep (S3) through `sudo rtcwake -m mem -s 12` to `-s 20`, so no one had to wake the PC.
+
+| Check | Result |
+|---|---|
+| One suspend with nothing open | woke by RTC; "resumed, card re-initialised"; clean log |
+| `arecord -d 30` running across a suspend (6.3) | alsa-lib printed "Suspended. Trying resume. Failed. Restarting stream. Done." and the file holds the full 30.0 s; exit 0 |
+| `arecord` stopped with SIGSTOP across a suspend, killed after resume (6.3) | no oops; the card records normally afterwards |
+| Five suspend cycles with a 4K zero-copy stream and `arecord` running (6.7) | after each resume, 120–121 frames in 2 s and both apps still running; zero-copy 0 failed, 0 late writes; no "HDCP active" line; no BUG, WARNING or `IO_PAGE_FAULT` |
+
+- **Audio content:** the Switch was sending digital silence during these runs. The card delivered real packets at about 47 per second with no silence fill, so the stream itself restarts and runs, but this run doesn't show sound returning after a resume. The operator's OBS session (first session above) does.
+- **Unrelated:** each resume logs a firmware "TSC ADJUST differs" line from the BIOS.
+
+## Stage 6: fault-injection builds (6.1, 6.5, 6.6)
+
+A test-only copy of `af5925d`, never committed, with a module parameter `hws_fault` and log lines where the sound card and `hws_pcie_dev` are freed. Loaded with `insmod` in place of the installed driver on 7.2.10, then replaced by the installed driver again (srcversion `A3BA6FC3CEE7AB5988D4D63`, zero-copy working).
+
+| Fault | Result |
+|---|---|
+| 1: FPGA version forced to 0 (6.1) | "zero_copy is on but unavailable: needs FPGA 122 or later; using the copy path" in the log, the same reason in debugfs `status`; 120 frames captured through the copy path; input capped at 3840 wide |
+| 2: `snd_pcm_new()` fails (6.5) | probe fails; no video node or sound card left; the sound card and `hws_pcie_dev` are both freed; `rmmod` works |
+| 3: `snd_card_register()` fails (6.5) | the same |
+| 4: `hws_audio_register()` fails as a whole (6.5) | probe fails; the status thread is stopped; `hws_pcie_dev` freed; `rmmod` works |
+| 5: register 0 bit 3 stuck at stop (6.6) | unbind took 242 ms with one warning, "card still busy 200 ms after stop"; everything freed; `rmmod` works |
+
+No BUG, WARNING or oops in any run. kmemleak isn't in this kernel; the free markers stand in for it.
+
+## 6.9: DMA-stop probe (driver `584abbb`, branch `probe/dma-stop`)
+
+The probe build ran on branch `probe/dma-stop`; that code is debug-only and not in the stage branches. Loaded with `insmod`, `debug_dma=1`, `zero_copy=0` (so the card wrote only the driver's DMA buffers), IOMMU `DMA-FQ`, the Switch 2 at 3840×2160p60, one `v4l2-ctl` stream. Three runs, each on a fresh stream.
+
+- **Method:** at a top-half interrupt the probe filled quarters 0 and 1 (idle until the next frame) with a pattern. 2,041 µs after the next frame-end interrupt, with the card inside quarter 0, it cleared the video enable bit and read register 2 back. It then sampled how far the card had written into quarter 0, and register 0, at 0 µs to 50 ms after the disable, and scanned both quarters.
+- **Result, identical in all three runs:** quarter 0 was written up to byte 2,095,104 at the first sample, and not one more byte in the next 50 ms. The written part is a single prefix with no gaps and ends on a 2 KiB boundary. Quarter 1 wasn't touched. Register 0 read 0x3 at every sample: bit 3 stayed 0.
+- **Meaning:** once the cleared enable bit is read back, the card writes nothing more. It finishes the 2 KiB burst in progress before that point. Register 0 bit 3 doesn't show DMA in progress, so waiting on it would prove nothing. `hws_video_quiesce()` relies on the readback and adds a short pause as margin.
+- No BUG, WARNING or `IO_PAGE_FAULT`.
+- **`hws_video_quiesce()`, driver `cc357eb` (DKMS `1.0.0.230324.6.3`, srcversion `B29F5E369590713DA901773`):** 4K capture 60.00 fps, 300 of 300 unique, no gaps; a zero-copy stream across one S3 cycle (`rtcwake`) delivered 120 frames in the 2 s after resume; unbind with that stream and `arecord` open took 20 ms, both apps exited by themselves, and capture worked after the bind (zero-copy 0 failed). No BUG, WARNING or `IO_PAGE_FAULT`.
+
+## 6.8: input-size change with zero-copy active
+
+Driver `2399b61` (DKMS `1.0.0.230324.6.5`, srcversion `0C2CDA11DC242C44B3B5C8C`) on 7.2.10, `zero_copy=1 debug_dma=1`. The operator switched the Switch 2's output between 1920×1080p60 and 3840×2160p60 from its settings menu, with OBS showing the picture. `tests/switchtest.sh` ran a second `v4l2-ctl` stream through `framecheck.py` and logged each size change the driver saw. The debugfs counter "engine restarts for a size change" counts the restarts the fix makes.
+
+| Run | Zero-copy consumer | Size changes | Engine restarts | Frame check | Kernel log |
+|---|---|---|---|---|---|
+| B: capture 3840×2160, OBS closed for the first part | the `v4l2-ctl` stream | 20 checked (10 each way), then 20 more with OBS capturing 4K | 10, then 20 in total | 0 sequence repeats once error buffers are left out (see below) | 0 `IO_PAGE_FAULT`, 0 stray writes, no WARNING or BUG |
+| A: capture 1920×1080 | OBS at 1920×1080 | 40 (20 each way) | 20, one for each change up to 4K | 9,140 frames, 0 sequence repeats, 0 error buffers, 12 sequence gaps (frames lost at switches) | 0 `IO_PAGE_FAULT`, **1 stray write**, no WARNING or BUG |
+
+- **The fix ran where it should.** Restarts happen only when the input changes away from the size zero-copy is capturing. In run A that is every change from 1080p up to 4K: the change where the old code could have overrun a 1080p buffer. None of the 20 caused a fault or a write outside the driver's buffers.
+- **The stray write is on the copy path, not zero-copy.** It landed in the driver's own DMA buffer 0 at offset 0xfe000–0x1057ff (30 KiB), 180 ms after the 1080p picture returned from a 4K→1080p change (the 18th). At that moment the input was 4K and OBS 1080p, so zero-copy wasn't in use and the old path ran: new lengths and a canary refill with the engine still writing a 4K quarter. The card wrote 30 KiB past the new 1080p length and then stopped. The buffer is sized for 4K, so nothing outside it was touched. This matches the stage 4 canary hit at a cable switch.
+- **Transient size.** Change 38 read 1920×2160 for one poll before 1920×1080. The driver accepted it and moved on.
+- **Recovery:** after each change the frame counter moved again within 18–93 ms (no-signal frames count).
+- **Tooling fixes found by run B:** `framecheck.py` counted buffers dequeued with the error flag as frames (zero timestamp and sequence), and `switchtest.sh` counted each "no usable signal" as a size change. Both fixed in `144057f`.
+- **Every size change restarts the engine, driver `bf3ede3` (DKMS `1.0.0.230324.6.6`, srcversion `3AB0CB5F8F9E57212FEA2AA`), `zero_copy=0 debug_dma=1`.** Run C: OBS at 1920×1080 and the `v4l2-ctl` stream, both on the copy path; 40 size changes (20 up to 4K, 18 down, and one through a transient 1920×2104). 9,822 frames, 0 sequence repeats, 0 error buffers, 10 sequence gaps (frames lost at switches); the frame counter moved again within 19–83 ms. 41 restarts during the run, one more than the changes the script saw, since a transient size can last less than its 50 ms poll. 0 `IO_PAGE_FAULT`, **0 stray writes**, no WARNING or BUG.
+
+## 6.17: hardware validation pass
+
+### Resolution matrix
+
+Driver `bf3ede3` (DKMS `1.0.0.230324.6.6`), `debug_dma=1`, OBS closed. The PC's GPU (AMD, HDMI-A-2) drove the card's input. `tests/modematrix.sh` set each mode with `kscreen-doctor`, waited for the driver to report it, and captured 300 frames at the native size through `framecheck.py`, walking up and back down, with `zero_copy` 0 and then 1. The desktop on that output was static, so unique frames don't mean anything here.
+
+| zero_copy | GPU mode | Driver input | fps | delta median / stdev ms | unique | gaps | repeats | errors | zero-copy frames |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@120.00 | 1920x1080 | 119.86 | 8.33 / 0.09 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@239.96 | 1920x1080 | 235.56 | 4.17 / 1.13 | 7/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@120.00 | 1920x1080 | 120.00 | 8.33 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.02 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.06 | 2/300 | 0 | 0 | 0 | 297 |
+| 1 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 297 |
+| 1 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.01 | 2/300 | 0 | 0 | 0 | 297 |
+| 1 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 297 |
+| 1 | 1920x1080@120.00 | 1920x1080 | 120.00 | 8.33 / 0.00 | 2/300 | 0 | 0 | 0 | 297 |
+| 1 | 1920x1080@239.96 | 1920x1080 | 239.96 | 4.17 / 0.00 | 3/300 | 0 | 0 | 0 | 297 |
+| 1 | 1920x1080@120.00 | 1920x1080 | 120.00 | 8.33 / 0.00 | 2/300 | 0 | 0 | 0 | 297 |
+| 1 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 297 |
+| 1 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.01 | 2/300 | 0 | 0 | 0 | 297 |
+| 1 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 297 |
+| 1 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.01 | 2/300 | 0 | 0 | 0 | 297 |
+
+- **1080p240 on the copy path,** first pass: 235.56 fps over 300 frames with no gaps, repeats or errors. Two repeats of that mode alone with 1,200 frames gave 239.96 fps on both paths, so it was the start of the stream right after the mode change, not a sustained shortfall.
+- Zero-copy took 297 of 300 frames at every size; the first frames of a stream use the copy path by design.
+
+### Audio from a source that isn't 48 kHz
+
+Driver `bf3ede3`. The card's EDID declares one audio format, 2-channel LPCM at 48 kHz, and the GPU's HDMI port (`hw:2,9`) then offers only 32 and 48 kHz. **A 44.1 kHz source can't be produced from this PC,** so that check isn't done. A source that ignores the EDID would be needed. 32 kHz stood in for it: a 1 kHz tone played straight to `hw:2,9`, captured from `hw:0,0` at 48 kHz.
+
+| Source | Delivered | Content |
+|---|---|---|
+| 48 kHz, 1 kHz tone | 192,000 frames in 3.97 s | 1,000.0 Hz, full level |
+| 32 kHz, 1 kHz tone | 192,000 frames in 3.99 s | 97.7% silence from the driver's silence fill; a few packets of 32 kHz samples played as 48 kHz (about 1,500 Hz) |
+
+So with a source rate the card doesn't support, the stream keeps its 48 kHz pace and is mostly silent, with no rate drift and no garbage at full scale. It isn't usable audio. That's expected, since the EDID rules the rate out.
+
+### Stale audio at each start (6.20)
+
+The 32 kHz capture began with 1,024 frames that exactly matched the end of the 48 kHz capture before it. With 48 kHz only, alternating a 1 kHz and a 500 Hz tone, one capture of each, three pairs: every capture started with one or two packets (21–43 ms) of the previous capture's tone, even right after a module reload. Clearing the driver's audio ring before the enable changed nothing, so the card sends them. Driver `7784170` (DKMS `1.0.0.230324.6.7`, srcversion `76CCE9310DB87869487B36C`) drops the first two packets after each audio start: in five pairs, all 10 captures started with their own tone from frame 0.
+
+### IOMMU modes
+
+**`iommu.strict=1`** (one boot, IOMMU type `DMA`), driver `7784170` (DKMS `1.0.0.230324.6.7`), the PC's GPU as the source. `tests/zctest.sh` at 1920×1080p240 and again at 3840×2160p60: every case delivered at the full rate with 0 sequence gaps or repeats, zero-copy 0 failed and 0 late writes, and **0 buffers outside the window, including the 100 start/stop cycles** that counted 174 under the default `DMA-FQ`. 0 `IO_PAGE_FAULT`, stray writes or warnings. This supports the inferred cause: with lazy (flush-queue) unmapping, freed addresses come back late, so quick reallocations land below the 0xE0000000 window and use the copy path. Under strict unmapping they are reused at once. The copy-path fallback is the designed behaviour, so nothing needs changing.
+
+**`iommu=pt`** (one boot, IOMMU type `identity`), driver `7784170`. At probe the driver logged "4.5 MiB DMA buffers unavailable (no IOMMU translation or CMA); 4096-wide input will be captured at 3840", and debugfs gave zero-copy's reason as "IOMMU not translating". `tests/modematrix.sh`:
+
+| zero_copy | GPU mode | Driver input | fps | delta median / stdev ms | unique | gaps | repeats | errors | zero-copy frames |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.12 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@120.00 | 1920x1080 | 119.68 | 8.33 / 0.29 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@239.96 | 1920x1080 | 237.20 | 4.17 / 0.84 | 6/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@120.00 | 1920x1080 | 120.01 | 8.33 / 0.02 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.03 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.10 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.10 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.18 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.16 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.07 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@120.00 | 1920x1080 | 120.00 | 8.33 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@239.96 | 1920x1080 | 239.96 | 4.17 / 0.02 | 4/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@120.00 | 1920x1080 | 120.00 | 8.33 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.04 | 2/300 | 0 | 0 | 0 | 0 |
+
+- Every mode delivered through the copy path, with `zero_copy` 0 and 1 alike (0 zero-copy frames). The first stream after a change to 120 or 240 Hz on the copy path again started slightly slow (119.68 and 237.20 fps over 300 frames, no gaps), as in the matrix above.
+- **4096×2160p60 from the GPU:** the driver's input and the DV timings read 3840×2160, and 300 frames captured at 60.00 fps with no gaps or repeats. The card scales 4096-wide input to 3840 before the FPGA (stage 3), so the driver's own 3840 clamp for 4 MiB buffers can't be exercised with this card.
+
+**`amd_iommu=off`** (one boot; the card has no IOMMU group), driver `7784170`. The same fallback message as under `iommu=pt`; the DMA buffers are 4 MiB at physical addresses below 4 GB (buffer 0 at 0x55800000, address table window 0x40000000), and zero-copy reports "IOMMU not translating". `tests/modematrix.sh`:
+
+| zero_copy | GPU mode | Driver input | fps | delta median / stdev ms | unique | gaps | repeats | errors | zero-copy frames |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.13 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.12 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.12 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@120.00 | 1920x1080 | 119.87 | 8.33 / 0.08 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@239.96 | 1920x1080 | 239.96 | 4.17 / 0.01 | 4/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@120.00 | 1920x1080 | 120.00 | 8.33 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.07 | 2/300 | 0 | 0 | 0 | 0 |
+| 0 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.02 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@120.00 | 1920x1080 | 119.87 | 8.33 / 0.08 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@239.96 | 1920x1080 | 239.97 | 4.17 / 0.00 | 5/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@120.00 | 1920x1080 | 120.00 | 8.33 / 0.00 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 3840x2160@60.00 | 3840x2160 | 60.00 | 16.67 / 0.03 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 2560x1440@59.95 | 2560x1440 | 59.95 | 16.68 / 0.01 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1920x1080@60.00 | 1920x1080 | 60.00 | 16.67 / 0.17 | 2/300 | 0 | 0 | 0 | 0 |
+| 1 | 1280x720@60.00 | 1280x720 | 60.00 | 16.67 / 0.15 | 2/300 | 0 | 0 | 0 | 0 |
+
+- A 1 kHz tone from the GPU's HDMI port came through at 1,000.0 Hz and full level.
+- The three test boot entries were removed afterwards; the default entry stayed `7.2.10-200` throughout.
+
+### 8-hour OBS session at 4K60
+
+Driver `7784170` (DKMS `1.0.0.230324.6.7`), `zero_copy=1` from `/etc/modprobe.d/hws.conf`, normal boot (IOMMU `DMA-FQ`). OBS captured 3840×2160 YUYV over zero-copy from the PC's HDMI-A-2 output at 3840×2160p60, with a quiet 1 kHz tone (about −38 dBFS) played into the card through `hw:2,9`. Sleep and screen power-off were blocked with `systemd-inhibit` and `kde-inhibit` for the run. `tests/soak.sh 8 30`, 2026-10-19 23:11 to 2026-10-20 07:12:
+
+| time | fps | lost | zero-copy failed | audio gaps | OBS RSS | MemAvailable | IO_PAGE_FAULT | stray writes | PipeWire errors |
+|---|---|---|---|---|---|---|---|---|---|
+| 23:12 | 59.99 | 0 | 0 | 1 | 433 MiB | 84806 MiB | 0 | 0 | 0 |
+| 23:42 | 59.99 | 0 | 0 | 1 | 449 MiB | 85932 MiB | 0 | 0 | 0 |
+| 00:12 | 59.99 | 0 | 0 | 1 | 449 MiB | 85878 MiB | 0 | 0 | 0 |
+| 00:42 | 59.99 | 0 | 0 | 1 | 458 MiB | 85494 MiB | 0 | 0 | 0 |
+| 01:12 | 59.99 | 0 | 0 | 1 | 458 MiB | 85565 MiB | 0 | 0 | 0 |
+| 01:42 | 59.99 | 0 | 0 | 1 | 459 MiB | 84499 MiB | 0 | 0 | 0 |
+| 02:12 | 59.99 | 0 | 0 | 1 | 459 MiB | 84287 MiB | 0 | 0 | 0 |
+| 02:42 | 59.99 | 0 | 0 | 1 | 459 MiB | 85667 MiB | 0 | 0 | 0 |
+| 03:12 | 59.99 | 0 | 0 | 1 | 459 MiB | 86190 MiB | 0 | 0 | 0 |
+| 03:42 | 59.99 | 0 | 0 | 1 | 459 MiB | 84736 MiB | 0 | 0 | 0 |
+| 04:12 | 59.99 | 0 | 0 | 1 | 459 MiB | 86248 MiB | 0 | 0 | 0 |
+| 04:42 | 59.99 | 0 | 0 | 1 | 459 MiB | 86374 MiB | 0 | 0 | 0 |
+| 05:12 | 59.99 | 0 | 0 | 1 | 459 MiB | 85260 MiB | 0 | 0 | 0 |
+| 05:42 | 59.99 | 0 | 0 | 1 | 459 MiB | 86300 MiB | 0 | 0 | 0 |
+| 06:12 | 59.99 | 0 | 0 | 1 | 459 MiB | 85269 MiB | 0 | 0 | 0 |
+| 06:42 | 59.99 | 0 | 0 | 1 | 459 MiB | 86236 MiB | 0 | 0 | 0 |
+| 07:12 | 59.99 | 0 | 0 | 1 | 459 MiB | 85253 MiB | 0 | 0 | 0 |
+
+- **Totals at the end:** 1,796,601 frames, 0 lost; zero-copy 1,790,121 frames, 0 failed, 0 late writes, 0 buffers outside the window; OBS's consumer had no buffer missing once.
+- **Rate:** 59.99 in every row; `soak.sh` truncates to two decimals, and the card counted 1,796,601 frames in about 8 h 00 min, which is 60 fps.
+- **Audio:** no gap during the run (the 1 counted before the tone started; two more came after the tone stopped at the end).
+- **Memory:** OBS grew from 433 to 459 MiB in the first 2.5 h and then stayed at 459 MiB for 5.5 h. Available system memory moved between 84.3 and 86.4 GiB with no trend.
+- **Kernel and PipeWire:** 0 `IO_PAGE_FAULT`, 0 stray writes, 0 PipeWire errors or xruns, no WARNING or BUG.
+
+### GPU losses during mode changes while capturing (6.21, open)
+
+The GPU (Radeon RX 9070, `amdgpu 0000:03:00.0`) dropped off the PCIe bus twice, each time while `kscreen-doctor` changed HDMI-A-2's mode and the card was capturing from it. Both times the kernel logged `device lost from bus!`, then SMU and display-engine errors, and the desktop stopped responding (the second time the screen went white); the operator rebooted.
+
+| When | Driver | Capturing | Mode changes before the loss | Lost 1.3–3 s after |
+|---|---|---|---|---|
+| 2026-10-19 22:58:47 | `7784170` (DKMS 6.7), `zero_copy=1` | OBS at 1280×720, zero-copy | 1 | 720p → 2160p60 |
+| 2026-10-20 07:47:56 | `6432897`, `zero_copy=1 debug_dma=0` | `v4l2-ctl` at 1920×1080 | about 17, alternating 1080p60 and 2160p60 every 6 s (the 6.10 check) | 2160p60 → 1080p60 |
+| 2026-10-20 08:07:02 | DKMS 6.7, reloaded with defaults 3 s before | **nothing** | 1 | 1080p240 → 2160p60 |
+
+What didn't lose the GPU: about 66 mode changes in the 6.17 matrix runs (driver 6.6 and 6.7, normal, `iommu=pt` and IOMMU-off boots), where each mode was set **before** a capture started; 120 resolution changes from the Switch 2 during capture (6.8); the 8-hour session (no mode changes). The card sits behind the chipset (00:02.1) and the GPU on a CPU root port (00:01.1), in different IOMMU groups; neither loss came with an AER error or an IOMMU fault from the card.
+
+The third loss came with nothing capturing, so capture isn't required; it followed a driver reload by about 3 s (the card's HDMI receiver is re-initialised at probe). The ~66 safe changes had no reload just before. Explanations that still fit:
+1. The engine restart that 6.8 added for every input-size change while capturing (`bf3ede3`) makes the card's HDMI receiver react in a way that hangs the GPU's display engine mid-modeset.
+2. A GPU mode change on the output feeding this card can hang the GPU, more often when the card's receiver is busy (capturing) or settling (just re-initialised): receiver or amdgpu behaviour, independent of the driver version.
+
+**Control run, capture driver unloaded (2026-10-20 08:32–08:35).** Card cabled to HDMI-A-2 and powered, `HwsUHDX1Capture` removed with `rmmod` (no `/dev/video0`), OBS closed. 20 changes alternating 1920×1080p60 and 3840×2160p60, one every 10 s: every mode took, and the kernel logged no `device lost`, `REG_WAIT` or ring timeout. The driver then loaded normally and captured 120 of 120 frames. This points at something the driver does (the card's HDMI receiver with the driver loaded is the remaining difference), but it isn't proof: the second loss came only after about 17 changes at 6 s intervals, and 20 clean changes is a small sample.
+
+**Driver loaded, nothing capturing (2026-10-20 08:38–08:41).** DKMS 6.9 (srcversion `0CD4DA1B1E0DF0597BFDFE4`) loaded, `/dev/video0` not open, the same 20 changes 10 s apart: no GPU error; the driver's status file followed each change (1920×1080, 3840×2160). So the status thread's polling of an idle card doesn't trigger it either, at least at this pace. The third loss (nothing capturing, but 3 s after a driver load) and the second (capturing, 6 s apart) remain.
+
+**Code check (no hardware).** The register writes a capture makes when the input size changes (the 6.8 restart) are the video enable (register 2), the quarter lengths (50–53), the DMA size cap (9) and, with zero-copy, the buffer addresses (16–19): DMA and engine registers only. The restart's `CheckCardStatus()` would run the full start sequence only if register 0's run bit were clear; probe 6.9 showed it stays set after a stop, and the status thread's check of the same bit (6.19) never fired in any boot, the three loss boots included. Nothing in the driver writes EDID, hot-plug or HDMI link controls; no known register does that. The one place the driver may reset the card's input path is the undocumented register 0 start sequence at probe and resume (0x00, 0x10, 0x80000000, 0x80FFFFFF, 0x13), which the vendor's Windows driver also writes.
+
+**Closed as a known issue (2026-10-20).** Nothing found ties the losses to a driver defect: the driver doesn't touch the HDMI link during capture, and a GPU that drops off the bus over a sink's behaviour points at amdgpu or GPU firmware. The setup is unusual (the capture PC's own GPU as the source); 120+ Switch 2 resolution changes during capture were clean. Recorded for the user guide (7.2); no more mode changes on this output in testing. Further runs (capturing with DKMS 6.3 against 6.9) would narrow it but each risks a lockup; it risks another lockup, so it waits for the operator. Until then no mode changes are made on the GPU output feeding the card at all; `tests/modematrix.sh` refuses to run without `HWS_ALLOW_GPU_MODESET=1`.
+
+### Not done
+
+- **A second, non-X3D machine:** none available.
+
+## 6.11: a frame repeated to the zero-copy consumer
+
+Driver `fix/release-audit` with a debug knob (commit below), `zero_copy=1 debug_dma=1`, 3840×2160p60 from the PC's GPU. Writing K to debugfs `stale_bottom_halves` makes the K-th bottom half from then on take the stale-half path. On a fresh stream, K=3 lands on the frame where zero-copy picks its first buffer: the zero-copy consumer then holds a copy buffer when the next frame arrives in its zero-copy buffer. 60-frame captures through `framecheck.py`:
+
+| Build | K | Runs | Sequence repeats | Error buffers | "held copy buffers failed" |
+|---|---|---|---|---|---|
+| 6.11 fix removed (test build, not committed) | 3 | 5 | 1 in each | 0 | — |
+| with the fix | 3 | 5 | 0 | 1 in each | +1 in each |
+| with the fix | 1, 2, 4–10 | 1 each | 0 | 0 or 1 | 0 (the path isn't reached) |
+
+The knob reproduces LINUX-014 and the fix removes the repeat: the held buffer completes with an error instead. A stale bottom half every 0.3 s during a running zero-copy stream (40 of them over 900 frames) gave 40 sequence gaps, 40 error buffers and no repeats. The 6.8 switch runs had 0 repeats as well. No `IO_PAGE_FAULT`, WARNING or BUG.
+
+## 6.15: late copies under load
+
+Driver `6432897` (built from the branch, `insmod`), `zero_copy=0` so every frame takes the copy path, the PC's GPU as the source, OBS closed. Captures through `framecheck.py`; "late" is debugfs "copy path: frames failed because a copy ended late", "card lost" the driver's dropped-frame count. `stress-ng` isn't installed, so a small C program loaded the CPUs instead.
+
+| Input | Load | Delivered | Gaps | Repeats | Error buffers | Late | Card lost |
+|---|---|---|---|---|---|---|---|
+| 3840×2160p60, 600 frames | none | 60.00 fps | 0 | 0 | 0 | 0 | 0 |
+| 3840×2160p60 | 32 spinning threads | 17.68 fps | 1,434 | 0 | 0 | 0 | 0 |
+| 3840×2160p60 | 32 threads copying 64 MiB buffers | 17.80 fps | 1,420 | 0 | 0 | 0 | 0 |
+| 1920×1080p240, 2,400 frames | none | 239.96 fps | 0 | 0 | 0 | 0 | 0 |
+| 1920×1080p240 | 32 spinning threads | 48.29 fps | 9,523 | 0 | 0 | 0 | 0 |
+| 1920×1080p240 | 32 memory-copy threads | 39.74 fps | 12,086 | 0 | 0 | 0 | 0 |
+| 3840×2160p60, 600 frames | SCHED_FIFO 60 bursts on CPU 31: 10 ms busy, 20 ms idle | 50.41 fps | 114 | 0 | 115 | 115 | 0 |
+| 1920×1080p240, 2,400 frames | SCHED_FIFO 60 bursts on CPU 31: 3 ms busy, 7 ms idle | 178.72 fps | 822 | 0 | 683 | 683 | 139 |
+
+- **Ordinary load doesn't make copies late.** The IRQ thread runs at SCHED_FIFO 50, so normal-priority load never delays it; the late count stayed 0. The rate fell because the capturing program (`v4l2-ctl` and the Python checker) was starved and had no buffer queued.
+- **A delayed IRQ thread does.** Real-time bursts on the IRQ thread's CPU (31) made copies end past the half-frame window. Every late copy came back as an error buffer, and the gaps match: 683 late + 139 lost = 822 at 240 Hz; at 4K, 115 error buffers and 114 gaps (the last frame's failure leaves no gap after it). No repeats, no `IO_PAGE_FAULT`, WARNING or BUG.
+- `sched_rt_runtime_us` equals `sched_rt_period_us` (1,000,000) on this kernel, so real-time throttling is off; the burst program always slept longer than it spun.
+- With no load, the late count stayed 0 here, in the 8-hour session, and in every earlier capture: no false positives seen.
+
+## 6.10: no stray-write lines with debug_dma off
+
+Driver `7784170` (DKMS `1.0.0.230324.6.7`), `debug_dma=0` (the default) and `zero_copy=1`, Switch 2 as the source (no GPU mode changes; see 6.21). OBS captured at 3840×2160 while `tests/switchtest.sh` ran a second stream; the operator switched the Switch between 1920×1080 and 3840×2160 20 times (10 each way).
+
+- 0 "stray DMA write" lines, 0 `IO_PAGE_FAULT`, no WARNING or BUG.
+- 21 engine restarts for the 20 changes (one transient size); the frame counter moved again within 20–59 ms of each change.
+- 5,839 frames, 0 sequence repeats, 0 error buffers, 6 sequence gaps (frames lost at switches).
+- The second stream asked for 1920×1080 but got 3840×2160, the size OBS held, so `framecheck.py`'s unique-frame count from this run is wrong (it cut 4K frames into 1080p pieces). The sequence checks come from the log and stand. `switchtest.sh` now reads the format back.
+- An earlier attempt with GPU mode changes was stopped by the GPU loss in 6.21.
+
+**IRQ-thread wakeup latency at 1080p240.** Driver DKMS `1.0.0.230324.6.7`, `zero_copy=0` (the copy path, where the canary sits), the PC's GPU at 1920×1080p239.96, set while nothing was capturing (6.21). For each run the driver was reloaded with `debug_dma` 0 or 1, a 3,000-frame `v4l2-ctl` capture started, and ftrace recorded `sched_waking` and `sched_switch` for the IRQ thread for 10 s; the latency is from the thread's wakeup to it running (ftrace timestamps have 1 µs resolution).
+
+| `debug_dma` | Wakeups | Median | p99 | p99.9 | Max | Frames lost |
+|---|---|---|---|---|---|---|
+| 0 | 4,808 | 1 µs | 5 µs | 16 µs | 18 µs | 0 |
+| 1 | 4,810 | 1 µs | 8 µs | 17 µs | 23 µs | 0 |
+| 0 | 4,810 | 1 µs | 4 µs | 16 µs | 28 µs | 0 |
+| 1 | 4,809 | 1 µs | 4 µs | 16 µs | 32 µs | 0 |
+
+No difference beyond run-to-run noise: the canary scan, now outside `cap_lock`, doesn't delay the IRQ thread. No late copies or `IO_PAGE_FAULT` during the eight runs. Putting things back afterwards lost the GPU (6.21, third loss): the driver was reloaded with its defaults at 08:06:58, HDMI-A-2 was switched from 1080p240 to 2160p60 with nothing capturing, and at 08:07:02 the GPU dropped off the bus.
+
+## 6.18: dead code removed
+
+Four commits on `fix/release-audit`: `aebb731` (the per-device vb2 queue and its ops), `be1e6ac` (unused fields, tables, ioctl numbers and locals; the register read-backs in `InitVideoSys()` stay as plain reads), `9ce0184` (thirteen `#if 0` and `#if 1` blocks, resolved by script) and `2d4e62a` (three unused includes and seventeen repeated ones). `hws_video.c` and `hws.h` lose about 560 lines. W=1 warnings on 7.2.10: 30 before, 23 after; it builds without errors on 7.2.6, 7.2.9 and 7.2.10.
+
+Checks on that build (`insmod` of a fresh build, then DKMS `1.0.0.230324.6.9`, srcversion `0CD4DA1B1E0DF0597BFDFE4` on all three kernels), the PC's GPU at 3840×2160p60 as the source, no mode changes:
+
+| Check | Result |
+|---|---|
+| `v4l2-compliance -s` | 58 of 59, the by-design `reqbufs != EBUSY` |
+| DV timings, inputs, `G_PARM`, controls | 3840×2160p60 594 MHz; `HDMI` ok; 60/1; brightness, contrast, saturation |
+| `S_PARM` 30 in the streaming handle | 30.00 fps, deltas 33.33 ms |
+| `tests/zctest.sh` | every case 60.00 fps, 0 gaps, 0 repeats, 0 error buffers; zero-copy 0 failed, 0 late writes; 100 start/stop cycles added nothing to the window count |
+| Audio, alternating 1 kHz and 500 Hz captures (6.20) | each starts with its own tone; 96,000 frames in 2.06 s |
+| Unbind with `v4l2-ctl` and `arecord` open | 16 ms, both exited by themselves; 120 of 120 frames after the bind |
+| Kernel log | no `IO_PAGE_FAULT`, WARNING, BUG or GPU loss |
+
+The window count stood at 232 before `zctest.sh` began: `v4l2-compliance -s` runs many quick buffer cycles, the `DMA-FQ` effect recorded in 6.17.
+
+### Build output in the branch, and a stale DKMS module
+
+`7784170` staged `src/` with `git add -A` and so committed the kbuild output of a local build (`.o`, `.ko`, `.cmd`, `.mod.c`); `aeafbaa` and `6432897` updated it. Upstream tracks none of these. `tools/dkms-install.sh` packed all of `src/` from git, so the objects reached DKMS, and for DKMS `1.0.0.230324.6.8` kbuild reused the committed `hws_video.o` on 7.2.10 instead of compiling: that module held the code from `6432897` (it still had the removed queue code; srcversion `FBA939D1AAC60E8C53BE29D`, unlike the other kernels). Earlier installs weren't affected in practice, since the committed objects matched their commit's source (6.7 had the same srcversion on every kernel). `b5c3a3d` removes the build output from the index and makes the installer take only `Makefile`, `dkms.conf` and the three source files. 6.8 was removed from DKMS and 6.9 installed; all its modules have the same srcversion and none has the removed code. When the series is split into PRs, those three commits must leave out their `src/` build output.
