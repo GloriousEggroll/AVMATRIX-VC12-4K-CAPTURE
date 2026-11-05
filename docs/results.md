@@ -121,3 +121,215 @@ Registers documented by the mainline `hws` driver (drivers/media/pci/hws/hws_reg
 | 25, 26 | buffer base / per-channel DMA address (zero-copy doorbell in mainline) | 0, 0 (unused by this driver) |
 | 110 | input frame rate | 60 (integer fps) |
 | 120, 130 | programmed output size and rate | 1920×1080, 60 (never written by this driver; frames still arrive at 3840×2160) |
+
+## Stage 3: `rework/single-copy`
+
+Driver `fa5b301`, module srcversion `E3F8F6E0072AD04809ACE89`, after a reboot on 2026-10-19 with no other app using the card. dmesg: `DMA buffers: 4 x 4608 KiB, input up to 4096x2160`, no warnings, 0 `IO_PAGE_FAULT`.
+
+| Check | Result |
+|---|---|
+| Frame delivery (`run-baseline.sh`) | 60.00 fps in all three runs, every frame unique, no sequence gaps or bursts; 4K native delta stdev 0.00 ms |
+| `v4l2-compliance` (no `-s`) | 47 / 48; only the by-design `reqbufs != EBUSY` |
+| Two 4K streams at once | Each 60.00 fps, 300 / 300 unique, no gaps; both consumers got the same frames |
+| `S_FMT` from a third process during both | `Device or resource busy` |
+| 200 open/stream/close cycles (1–4 buffers, 1–5 frames) beside a 2400-frame 4K stream | 200 / 200 succeeded; the long stream held 60.00 fps with no gaps; 0 frames lost; no kernel warnings |
+| `S_PARM` 30 | 30.00 fps, deltas 33.33 ms |
+| IRQ thread CPU, 600 frames | 4K native: 300 ms (0.5 ms per frame). 4K input scaled to 1080p: 730 ms (1.2 ms per frame). Before: about 1.3 ms in the tasklet plus 1.3–1.9 ms per buffer in the worker, partly with interrupts off. |
+| IRQ thread | `irq/202-0000:0b`, SCHED_FIFO 50, on CPU 4 (follows the IRQ affinity) |
+| Status thread, IOMMU faults | `I` state; 0 faults |
+
+debugfs `dma`: every video address register reaches its own buffer. Buffer 2 spans IOVA 0xfe800000–0xfec7ffff, so 0xfec00000, where the stray writes faulted before stage 1, is now inside it, in the unused gap past the 4K quarter. The faults may have stopped only because that address became mapped. `8a67155` adds a canary in each buffer's gap to show whether the card still writes there.
+
+An OBS start before the console's signal had locked opened at the 1920×1080 default and kept it once the 4K signal arrived, scaled to 1080p and drawn as a quarter of the 4K canvas. Reopening the source fixes it; H.3 automates that.
+
+### Operator session (driver `8a67155`, srcversion `C7DCAC889AAA7812B57DE3F`)
+
+A 15-minute OBS session at 3840×2160 with console audio, two quick OBS restarts, a suspend with OBS closed (11:28:54–11:29:51, `resumed, card re-initialised`), and OBS reopened at 4K after the wake.
+
+| Check | Result |
+|---|---|
+| `IO_PAGE_FAULT` | 0 across all of it |
+| Canary in each DMA buffer's gap | Untouched in all four buffers, including buffer 2 around 0xfec00000. This build refilled it at every capture start, so it covered only the last OBS start and stop; `df0a168` keeps it across starts. |
+| debugfs status | 0 half-queue overflows; 1 lost frame (a bottom half without its top half at a capture start) |
+| Measured rate | 16.667 ms on a fresh capture. The value left after the last short OBS session read 17.8 ms; it is only updated while capturing. |
+
+### Operator session 2 (driver `df0a168`, srcversion `47AF3E12696B71724ED6FB9`)
+
+Three OBS starts and stops, then a suspend with OBS capturing (11:35:53–11:36:14).
+
+| Check | Result |
+|---|---|
+| Suspend with capture running | The picture came back by itself after the wake (operator); `resumed, card re-initialised` |
+| Console audio, Switch 2 menu clicks | Sound right, clicks on time (operator); PipeWire ERR 1 on the console-audio loopback |
+| OBS picture | Fills the 4K canvas (operator) |
+| `IO_PAGE_FAULT` | 0 |
+| Frames | 5498, lost 2; the consumer had no buffer queued for 16 |
+| Canary | Buffers 0–2 untouched. **Buffer 3: 2 KiB written at offset 0x440000–0x4407ff (IOVA 0xfe440000–0xfe4407ff)**, beyond the 4K quarter (0x3f5000) and before the audio ring. 0x440000 is register 9 (0x44000) × 16. |
+
+The canary covered the whole boot, so the write could come from any of the starts, stops, the suspend or normal streaming. `bf69f64` logs each hit with its context.
+
+### Operator session 3: when the stray write happens (driver `bf69f64`, srcversion `608378952E69078C5C870C5`)
+
+The status thread logged two canary hits, both in buffer 3 at offset 0x440000–0x4407ff, at frames 9 and 24 of the first capture after boot (157 and 413 ms after audio enable). There were none during minutes of streaming, at two later OBS restarts, or at a suspend and resume with capture running. 0 `IO_PAGE_FAULT`.
+
+The kernel logs of two boots before stage 1 hold 10 and 20 faults: 256-byte writes climbing from 0xfec00000 to 0xfec01000 and beyond, one DMA run off the end of a 4 MiB buffer at 0xfe800000.
+
+Diagnosis: until the first status poll after a capture start, the DMA quarter lengths were still those of the 1920×1080 probe default, so the card ran the 4K quarter on to register 9 × 16 (0x440000) and ended with a 2 KiB block there. With 4.5 MiB buffers that is inside the buffer; with the old 4 MiB buffers it was past the end, which produced the faults. `7df0340` programs the lengths before the engine starts and sets register 9 so a run ends inside the buffer.
+
+### Operator session 4: the fix (driver `7df0340`, srcversion `CD2364BD0210131C9174DE0`)
+
+OBS started after boot, then the Switch 2 was switched to 1080p and back to 4K while OBS captured.
+
+| Check | Result |
+|---|---|
+| First capture start after boot | **No canary hits** (before the fix: the 2 KiB block at 0x440000 every time) |
+| Register 9 | 0x47d00: an over-long run stops at offset 0x47d000 |
+| Switch to 4K while capturing | The 4K frame DMA'd with the 1080p lengths ran on in buffer 3 to offset 0x47d7ff and stopped there: register 9 × 16 plus the final 2 KiB block, ending where the audio ring starts. Before the fix the same run ended at 0x4407ff. |
+| Other hits at the switches | Only inside the buffers: the last 4K frames written after the switch to 1080p (offsets up to 0x3f47ff, the end of a 4K quarter), and 2 KiB blocks just past each quarter's data |
+| `IO_PAGE_FAULT` | 0 |
+| Frames | 3724, lost 2 (at the switches), no buffer missing for the consumer |
+
+So the card's over-long runs end at register 9 × 16 + 2 KiB, and with register 9 set they stay inside the buffer at every resolution change, also with the 4 MiB fallback buffers (limit 0x3fd000 + 2 KiB, below the audio ring).
+
+## Stage 4.8: input mode survey with a PC source
+
+Driver `7df0340` (DKMS `1.0.0.230324.3.0`). The PC's GPU (AMD, HDMI-A-2) drove the card's input; each mode was set with `kscreen-doctor` and captured at its native size, 4 MMAP buffers, for about 2 s. The desktop on that output was mostly static, so only timing and sequence numbers matter here. 2026-10-19.
+
+| GPU mode | Driver input | Delivered fps | Delta median / stdev (ms) | Sequence gaps |
+|---|---|---|---|---|
+| 1920×1080 @ 239.96 | 1920×1080 | **239.96** | 4.17 / 0.00 | 0 |
+| 2560×1440 @ 144.01 | 2560×1440 | **144.00** | 6.94 / 0.00 | 0 |
+| 1920×1080 @ 120.00 | 1920×1080 | **120.00** | 8.33 / 0.00 | 0 |
+| 1920×1080 @ 119.88 | 1920×1080 | **119.88** | 8.34 / 0.00 | 0 |
+| 3840×2160 @ 60 | 3840×2160 | 60.00 | 16.67 / 0.00 | 0 |
+| 3840×2160 @ 50 | 3840×2160 | 50.00 | 20.00 / 0.26 | 0 |
+| 3840×2160 @ 30 | 3840×2160 | 30.01 | 33.33 / 0.28 | 0 |
+| 2560×1440 @ 59.95 | 2560×1440 | 59.95 | 16.68 / 0.22 | 0 |
+| 2560×1080 @ 60 | 2560×1080 | 60.00 | 16.67 / 0.08 | 0 |
+| 1920×1080 @ 60 | 1920×1080 | 60.00 | 16.67 / 0.21 | 0 |
+| 1280×720 @ 60 | 1280×720 | 60.00 | 16.67 / 0.16 | 0 |
+| 4096×2160 @ 60 | **3840×2160** | — | — | — |
+
+- **High refresh rates already work.** Capture at 120, 144 and 240 fps needs no driver change.
+- **4096×2160 is scaled by the card.** With the GPU sending 4096×2160p60 (594 MHz, h-total 4400), register 90 reads 3840×2160 and register 110 reads 61. A captured frame shows the whole desktop scaled to 3840 wide and letterboxed (black bars about 67 px top and bottom, matching 3840×2025). The scaling happens before the FPGA, presumably in the GSV2011. The driver never sees 4096-wide frames from this card.
+- **DV timings go stale after a mode change.** With no stream running, `QUERY_DV_TIMINGS` reported each new mode with the previous mode's frame rate (for example 2560×1440 as "30.00 fps", 110.6 MHz synthesized). The measured rate only updates while capturing. Stage 4.2 fixes this.
+- **Stray DMA.** The only canary hits were at the moment the cable was switched from the console to the PC with OBS capturing (12:35:20). Both were inside the buffers: the end of a 4K quarter in buffer 0, and a run in buffer 3 that stopped at the register 9 limit. 0 `IO_PAGE_FAULT`.
+
+## Stage 4 round 1 (`feat/hw-status`)
+
+Driver `46f7ec9` (DKMS `1.0.0.230324.4.0`, srcversion `78ADE6E8CAD81BA4F1E78AA`), after a reboot on 2026-10-19 with the Switch 2 at 3840×2160p60.
+
+| Check | Result |
+|---|---|
+| Frame delivery (`run-baseline.sh`) | 60.00 fps in all three runs, every frame unique, no gaps; 4K native delta stdev 0.00 ms |
+| `v4l2-compliance` (no `-s`) | 47 / 48 (the by-design `reqbufs != EBUSY`) |
+| Status thread, IOMMU faults | `I` state; 0 faults |
+| 4.2, before any capture this boot | `--query-dv-timings` 3840×2160 at 60.00 fps and `--get-parm` 60/1, from register 110 (no measurement yet) |
+| 4.1, Switch 2 (no HDCP) | Register 8 reads 0; input status ok; debugfs `HDCP: not active`. The PS5 test is still to do. |
+
+### 4.5: colour range from the Switch 2
+
+Three 3840×2160 frames of the home screen per setting, Y (luma) statistics:
+
+| Switch 2 RGB Range | Y min–max | 0.1% / 99.9% points | Below 16 | Above 235 |
+|---|---|---|---|---|
+| Automatic | 1–254 | 1 / 254 | 1.78% | 4.22% |
+| Limited | 1–254 | 1 / 254 | 1.82% | 4.45% |
+| Full | 1–254 | 1 / 254 | 1.36% | 4.21% |
+
+The card delivers full range whatever the Switch 2 setting. Either the Switch 2 sends YCbCr, which its RGB Range setting does not affect, or the card's HDMI chip converts every input to full range. A PS5 with its RGB range set to Limited would tell the two apart. `96dd3f1` reports full-range Rec. 709 in the format.
+
+(A first Limited reading taken on the TV Output settings screen gave 0.1% / 99.9% points of 17 / 246. That screen has no full black or white, so the reading reflected the content, not the range.)
+
+### PS5: HDCP and colour range (driver `96dd3f1`, srcversion `72A67248544678E83B7D8D7`)
+
+PS5 connected at 3840×2160p60 with OBS capturing. The operator turned Settings → System → HDMI → Enable HDCP off and back on, then set the RGB range to Limited and went to the home screen.
+
+| Check | Result |
+|---|---|
+| HDCP on (setting) | The card delivered the normal home screen. Register 8 read 0 throughout, so the driver never blanked and logged no change. The Windows driver blanks on the same register, so it would not have blanked either. Whether HDCP was active on the link can't be seen: register 8 is the only HDCP status the card gives the host. |
+| RGB range Limited, home screen (`tests/yrange.py`) | Y min 1, max 254; 59.2% of pixels below 16 (the black background at Y ≈ 1), 1.6% above 235 |
+| Signal re-handshakes at each HDCP toggle | OBS logged 31 "select timed out"; each made OBS call `LOG_STATUS`, 293 status dumps this boot. Rate-limited in the next commit. Canary hits only at the register 9 limit, inside the buffers; 0 `IO_PAGE_FAULT` |
+
+**4.5 settled:** a limited-range source has black at Y = 16, but the PS5 on Limited arrives with black at Y ≈ 1. So the card converts its input to full range, presumably in the GSV2011's colour-space converter, whatever the console sends. With the Switch 2 results, the format's full-range label is right for every source tested.
+
+### 4.3: registers 120 and 130 (probe)
+
+Driver `96dd3f1`, OBS closed, a 2700-frame 3840×2160 capture running as the observer, `tests/regprobe.py` (each value read back, restored on exit). 2026-10-19.
+
+| Write | Reads back | Register 90 (input size) | Register 110 (input fps) | Frame interrupts |
+|---|---|---|---|---|
+| 120 = 3840×2160 | yes | 3840×2160, unchanged for 3 s | 60, unchanged | — |
+| 120 = 1920×1080 | yes | unchanged | unchanged | — |
+| 120 = 1280×720 | yes | unchanged | unchanged | — |
+| 130 = 30 | yes | unchanged | unchanged | 121 halves/s before and during, 120 after restore (60 fps) |
+
+The observing capture completed all 2700 frames, 3 lost; no canary hits, 0 `IO_PAGE_FAULT`. Register 120 also holds 1920×1080 from reset while the input arrives at 4K across every signal re-lock. **On this card (FPGA 122) registers 120 and 130 are storage with no observable effect**; the card's own scaling (4096×2160 to 3840×2160) is not controlled from the host. The driver keeps its CPU scaler.
+
+### 4.9: 50 ms poll and the LOG_STATUS rate limit (driver `2ef336a`, srcversion `DD6C962F9203FA1AE6011BA`)
+
+OBS open; the console switched 4K to 1080p and back, then went into rest mode and woke.
+
+| Check | Result |
+|---|---|
+| OBS "select timed out" | 25, in two bursts of about 12 (about 1 s each, 13:22:55 and 13:23:49–50); none at the other changes. Before: 31 in this kind of session. |
+| Status dumps | 25 `LOG_STATUS` calls from OBS; the driver printed its part about twice (2 s rate limit). The core's two-line START/END banner still appears per call. Before: 293 full dumps. |
+| Why the bursts remain | During them the card still reported the signal present with the old timings (Power Present 1), so no no-signal frames were sent; it just delivered no frames for about a second while the console renegotiated. The faster poll can't help there. A watchdog sending blue frames would replace OBS's held last frame with a blue flash, so it was not added. |
+| Frames, faults | 7372 frames, 2 lost; canary hits only at the changes, all inside the buffers; 0 `IO_PAGE_FAULT` |
+
+### 4.8: 120 Hz from the PS5 (driver `2ef336a`)
+
+PS5 with 120 Hz Output on Automatic, running Hogwarts Legacy with its 120 Hz option and a high-frame-rate mode. The PS5 switched its output to 1920×1080 at 119.88 Hz (this EDID offers no 1440p120 or 4K120). OBS canvas set to 120 fps.
+
+| Check | Result |
+|---|---|
+| Input | `--query-dv-timings` 1920×1080p, 248.58 MHz, 119.88 fps; measured 8.342 ms; register 110 reads 120 |
+| OBS source still at 3840×2160 (opened at 4K60) | 120 fps delivered, the driver upscaling each 1080p frame on the CPU: IRQ thread 530 ms CPU per 5 s (0.88 ms per frame) |
+| OBS source reopened (properties → OK) | OBS log: "Resolution: 1920x1080, Framerate: 120.00 fps". 602 frames in 5 s (120 fps), none missed; IRQ thread 80 ms CPU per 5 s (0.13 ms per frame) |
+| Lost frames | 3 this boot, at mode switches |
+
+OBS's DV Timing list stops at 60 Hz because the kernel's standard timings (`v4l2_dv_timings_presets`) go no higher at 1080p and have no 1440p; "Leave Unchanged" uses the live timings, which is what OBS needs. After the console changes mode, reopen the source so it captures at the new native size.
+
+### 4.10: buzz during console mode changes (driver `1f3e39a`, srcversion `3ADD58FAC28F00B5A49A027`)
+
+PS5 switched from 4K to 1080p and back, with OBS capturing and the console-direct loopback on. The card's PipeWire node was recorded with `pw-record`, and the driver's debugfs `status` was logged every ~30 ms. `tests/staleaudio.py` classified the audio.
+
+**Before (driver `12f8c36`):** each switch buzzed for 3.4–3.9 s.
+- **The buzz:** each sample matched the one 5120 frames earlier to within 5 LSB, slipping to 4864 about once a second: a loop of the last ~107 ms of audio.
+- **Timing:** it started about 1 s before the driver reported "no usable signal".
+- **Cause:** the debugfs counters show the card raised no audio interrupts (and no video) for the whole buzz, so the driver delivered nothing. The ALSA ring is 16384 frames, which doesn't match the loop. The replay comes from PipeWire re-delivering its last buffers while the ALSA pointer stands still.
+- **Rejected first fix:** a driver-side mute of repeating content never fired, because the driver never sees the loop.
+
+**After (silence fill):**
+
+| Check | Result |
+|---|---|
+| Switch to 1080p | 3.46 s of digital silence; no replay loop; debugfs: 1 gap, 165 silence packets |
+| Switch back to 4K | 4.01 s of digital silence; no replay loop; 2 gaps, 353 silence packets in total |
+| Normal running | No gap filled before the first switch (1025 card packets) |
+| By ear | No buzz at either switch |
+| Kernel log | No `IO_PAGE_FAULT`. The canary logs in-buffer over-long quarters at the size changes, ending at 0x47d7ff, as on every stage 4 boot (5–29 per boot). |
+
+With no HDMI source connected (operator check, 2026-10-19), the card's audio node delivers silence: nothing is audible, and there is no buzz.
+
+### 4.4: zero-copy probe (driver `5c8ee4f`)
+
+The probe build ran on branch `probe/zero-copy`; that code is debug-only and not in the stage branches.
+- **Setup:** PS5 at 3840×2160p60, OBS closed. One `v4l2-ctl` stream at the input size, started by `tests/zcprobe.sh`. IOMMU domain `DMA-FQ`.
+- **Method:** over seven frames the probe pointed registers 16–19 alternately at a 33 MB test buffer the driver allocated, and back at the normal DMA buffers, with the last frame going to the normal buffers. It programmed each pair of quarters right after the previous frame's half-done interrupt for those quarters. Before each frame it filled both possible destinations of each quarter with a canary, and after the half it counted the canary words left in each.
+
+| Frame | Pointed at | Quarters 0–2 landed | Quarter 3 landed |
+|---|---|---|---|
+| 0, 2, 4 | test buffer | test buffer (0 canary words left of 1036800) | test buffer, except its last 512 words |
+| 1, 3, 5 | normal buffers | normal buffers | normal buffers, except the last 512 words |
+| 6 | normal buffers (restored) | normal buffers | normal buffers, except the last 512 words |
+
+- **Quarter 3:** its programmed length, 4149248 bytes, is the 4147200 bytes of frame data rounded up to 2 KiB. The card wrote only the frame data, so the 2 KiB tail kept its canary in whichever buffer it was pointed at. In each frame the other buffer was untouched.
+- **Addresses:** the test quarters started at T + 0, 0x3f4800, 0x7e9000 and 0xbdd800, so 2 KiB alignment is enough.
+- **Windows:** all four translation entries read `00000000:e0000000` (one 512 MiB window at 0xE0000000), and the test buffer's IOVA was 0xEE000000, inside it. The table was never written.
+- **Containment:**
+  - The 16.6 MB guard after the test quarters was untouched.
+  - After the restore, the test buffer stayed untouched, then and 1 s later.
+  - No `IO_PAGE_FAULT`, and no stray-DMA canary hit.
+
+So the card takes a new address for every frame and applies it to the next one. Zero-copy into app buffers can work on this card.

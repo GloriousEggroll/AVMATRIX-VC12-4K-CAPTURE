@@ -150,4 +150,16 @@ typedef enum {
 } COLOR;
 
 //----------------------------
+/*
+ * Register 9: DMA size limit in 16-byte units. A quarter DMA'd with a length
+ * shorter than the frame (the first frames after a resolution change) runs
+ * on up to this offset and ends with a 2 KiB block there. Reset value 0x44000
+ * (4.25 MiB), past the end of a 4 MiB buffer.
+ */
+#define HWS_REG_DMA_MAX_SIZE	(CVBS_IN_BASE + 9 * PCIE_BARADDROFSIZE)
+/* Register 8: bit ch set while the source uses HDCP (stage 4.1) */
+#define HWS_REG_HDCP_STATUS	(CVBS_IN_BASE + 8 * PCIE_BARADDROFSIZE)
+/* Register 110 + ch: input frame rate in whole fps, FPGA 122 and later (stage 4.2) */
+#define HWS_REG_IN_FPS(ch)	(CVBS_IN_BASE + (110 + (ch)) * PCIE_BARADDROFSIZE)
+
 #endif
