@@ -1,0 +1,20 @@
+# kbuild output
+*.o
+*.ko
+*.mod
+*.mod.c
+.*.cmd
+Module.symvers
+modules.order
+.tmp_versions/
+
+# written by the legacy installer
+hws_install.log
+
+# Python
+__pycache__/
+
+# tests/unit
+tests/unit/test_calc
+tests/unit/test_scale
+tests/unit/test_calc_slack

@@ -10,6 +10,7 @@
 #include <media/videobuf2-vmalloc.h>
 #include "hws.h"
 #include "hws_reg.h"
+#include "hws_scale.h"
 #include <sound/core.h>
 #include <sound/control.h>
 #include <sound/pcm.h>
@@ -44,6 +45,29 @@ static const char *hws_zc_unavailable(struct hws_pcie_dev *pdx);
 static bool zero_copy;	/* module parameter, defined with hws_zc_wanted() */
 
 /*
+ * Zero-copy has the card write the app's buffers, which videobuf2-dma-contig
+ * allocates. Some distribution kernels don't build it (RHEL 9); there the
+ * driver uses only the copy path. NULL when it is missing.
+ */
+static const struct vb2_mem_ops *hws_zc_memops(void)
+{
+#if IS_ENABLED(CONFIG_VIDEOBUF2_DMA_CONTIG)
+	return &vb2_dma_contig_memops;
+#else
+	return NULL;
+#endif
+}
+
+static dma_addr_t hws_zc_dma_addr(struct vb2_buffer *vb)
+{
+#if IS_ENABLED(CONFIG_VIDEOBUF2_DMA_CONTIG)
+	return vb2_dma_contig_plane_dma_addr(vb, 0);
+#else
+	return 0;
+#endif
+}
+
+/*
  * Debug-only DMA checks, read at load: the canary in each DMA buffer's
  * unused gap, the register snapshots in debugfs regsnaps, and the stray-write
  * log. Off by default, since the scan reads up to 14 MiB every 250 ms.
@@ -56,27 +80,6 @@ static void hws_unregister_video(struct hws_pcie_dev *dev);
 
 //------------------------
 
-static	void VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void FHD_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void HD_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void FHD_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void HD_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void SD_PAL_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void SD_NTSC_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void SD_PAL_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void SD_PAL_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void SD_NTSC_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void SD_NTSC_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void V1280X1024_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void V1280X1024_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void V1280X1024_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void FHD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void FHD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void HD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void HD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void V1280X1024_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void V1280X1024_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
-static	void All_VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h);
 //---------------------------
 #define MAKE_ENTRY( __vend, __chip, __subven, __subdev, __configptr) {	\
 .vendor		= (__vend),					\
@@ -492,7 +495,7 @@ static int hws_open(struct file *file)
     /* v4l2 file-handle */
     v4l2_fh_init(&ctx->fh, &videodev->vdev);
     file->private_data = &ctx->fh;
-	#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0))
+	#ifndef HWS_FH_TAKES_FILE	/* see src/Makefile */
 	v4l2_fh_add(&ctx->fh);
 	#else
 	v4l2_fh_add(&ctx->fh, file);
@@ -511,16 +514,16 @@ static int hws_open(struct file *file)
     q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC | V4L2_BUF_FLAG_TSTAMP_SRC_EOF;
     /*
      * Per-open lock for this queue only. vb2 releases it while a blocking
-     * DQBUF waits (via wait_prepare/wait_finish before 7.0, by itself since),
-     * which the pre-7.0 ops also need: they unlock q->lock and must not see
-     * NULL.
+     * DQBUF waits: through wait_prepare/wait_finish where vb2_ops still has
+     * them, which unlock q->lock and so must not see NULL, and by itself
+     * otherwise.
      */
     q->lock = &ctx->qmutex;
     q->dev = &pdx->pdev->dev;
 
     ret = vb2_queue_init(q);
     if (ret) {
-		#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0))
+		#ifndef HWS_FH_TAKES_FILE	/* see src/Makefile */
 		v4l2_fh_del(&ctx->fh);
 		#else
 		v4l2_fh_del(&ctx->fh, file);
@@ -589,7 +592,7 @@ static int hws_release(struct file *file)
     spin_unlock_irqrestore(&pdx->videoslock[videodev->index], flags);
 
     /* v4l2 fh cleanup */
-	#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0))
+	#ifndef HWS_FH_TAKES_FILE	/* see src/Makefile */
 	v4l2_fh_del(&ctx->fh);
 	#else
 	v4l2_fh_del(&ctx->fh, file);
@@ -769,8 +772,9 @@ static int hws_query_timings(struct hws_video *videodev, struct v4l2_dv_timings 
 {
 	struct hws_pcie_dev *pdx = videodev->dev;
 	struct v4l2_fract tpf, ptpf;
-	u64 want_ns, best_err = U64_MAX, err;
-	int w, h, il, i, best = -1;
+	u64 want_ns, cand_ns[16];
+	int cand[16], n = 0;
+	int w, h, il, i, best;
 	u32 st;
 
 	if (!hws_read_input(pdx, videodev->index, &w, &h, &il)) {
@@ -784,20 +788,18 @@ static int hws_query_timings(struct hws_video *videodev, struct v4l2_dv_timings 
 	}
 	want_ns = hws_tpf_ns(&tpf);
 
-	for (i = 0; v4l2_dv_timings_presets[i].bt.width; i++) {
+	/* the presets with this size (a handful), then the closest rate within 1% */
+	for (i = 0; v4l2_dv_timings_presets[i].bt.width && n < ARRAY_SIZE(cand); i++) {
 		const struct v4l2_bt_timings *bt = &v4l2_dv_timings_presets[i].bt;
 		if (bt->width != w || bt->height != h || !!bt->interlaced != !!il)
 			continue;
 		ptpf = v4l2_calc_timeperframe(&v4l2_dv_timings_presets[i]);
-		err = hws_tpf_ns(&ptpf);
-		err = err > want_ns ? err - want_ns : want_ns - err;
-		if (err < best_err) {
-			best_err = err;
-			best = i;
-		}
+		cand[n] = i;
+		cand_ns[n++] = hws_tpf_ns(&ptpf);
 	}
-	if (best >= 0 && best_err * 100 <= want_ns) {	/* within 1% */
-		*t = v4l2_dv_timings_presets[best];
+	best = hws_closest_interval(cand_ns, n, want_ns);
+	if (best >= 0) {
+		*t = v4l2_dv_timings_presets[cand[best]];
 		return 0;
 	}
 	memset(t, 0, sizeof(*t));
@@ -1039,7 +1041,7 @@ static void hws_pick_mem_ops(struct hws_vfh_ctx *ctx, u32 memory)
 	if (memory == V4L2_MEMORY_MMAP && READ_ONCE(zero_copy) && why)
 		dev_info_once(&pdx->pdev->dev, "zero_copy is on but unavailable: %s; using the copy path\n", why);
 	ctx->vbq.mem_ops = memory == V4L2_MEMORY_MMAP && hws_zc_wanted(pdx) ?
-			   &vb2_dma_contig_memops : &vb2_vmalloc_memops;
+			   hws_zc_memops() : &vb2_vmalloc_memops;
 }
 
 /* buffer ioctls: the caller's own queue, under its own lock */
@@ -1196,7 +1198,7 @@ static int hws_queue_setup_multi(struct vb2_queue *q,
     *num_planes = 1;
     sizes[0] = size;
     /* room for an over-long last quarter when the card writes the buffer itself */
-    if (q->mem_ops == &vb2_dma_contig_memops)
+    if (q->mem_ops == hws_zc_memops())
         sizes[0] += HWS_ZC_SLACK;
     return 0;
 }
@@ -1220,8 +1222,7 @@ static int hws_buffer_prepare_multi(struct vb2_buffer *vb)
 
     vb2_set_plane_payload(vb, 0, size);
     buf->mem = vb2_plane_vaddr(vb, 0);
-    buf->dma = vb->vb2_queue->mem_ops == &vb2_dma_contig_memops ?
-               vb2_dma_contig_plane_dma_addr(vb, 0) : 0;
+    buf->dma = vb->vb2_queue->mem_ops == hws_zc_memops() ? hws_zc_dma_addr(vb) : 0;
     return 0;
 }
 
@@ -1330,7 +1331,7 @@ static const struct vb2_ops hwspcie_video_multi_qops = {
     .queue_setup    = hws_queue_setup_multi,
     .buf_prepare    = hws_buffer_prepare_multi,
     .buf_queue      = hws_buffer_queue_multi,
-    #if (LINUX_VERSION_CODE < KERNEL_VERSION(7,0,0))
+    #ifndef HWS_VB2_NO_WAIT_PREPARE	/* see src/Makefile */
     .wait_prepare   = vb2_ops_wait_prepare,
     .wait_finish    = vb2_ops_wait_finish,
     #endif
@@ -1557,1356 +1558,6 @@ void audio_data_process(struct work_struct *p_work)
 
 }
 //-------------------------------
-static void FHD_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	//   BYTE*pDestBuf;
-	int *pSrcData;
-	int *pDestData;
-	pSrcBuf = pSrc;
-	pDestData = (int *) pOut;
-	for(y=0;y<in_h;y++)
-	{
-		switch(y%9)
-		{
-			case 0:
-			case 2:
-			case 4:
-			case 6:
-			case 8:
-			{
-				pSrcBuf = pSrc + (y*in_w*2)+(240*2);
-				for(x=0;x<(in_w-480);)
-				{
-					pSrcData =(int *)pSrcBuf;
-					pDestData[0] = pSrcData[0];
-					pDestData[1] = pSrcData[2];
-					pDestData[2] = pSrcData[4];
-					pDestData[3] = pSrcData[6];
-					pDestData[4] = pSrcData[8];
-					pSrcBuf +=18*2;
-					pDestData +=5;
-					x= x+18;
-				}
-				break;
-			}
-			case 1:
-			case 3:
-			case 5:
-			case 7:
-			{
-				break;
-			}
-		}
-
-	}
-
-}
-static void HD_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	//int *pSrcData;
-	//   int *pDestData;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	for(y=0;y<(in_h-120);y++)
-	{
-		memcpy(pDestBuf,(pSrcBuf+60*in_w*2),out_w*2);
-		pDestBuf += out_w*2;
-		pSrcBuf += in_w*2;
-	}
-
-}
-static void SD_NTSC_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	//int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	//int *pSrcData;
-	//int *pDestData;
-	DWORD dwI;
-	DWORD dwJ;
-	BYTE *pDstYUV;
-
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-
-
-	// PAL 720X576  NTSC 720X480
-	pDstYUV =  pDestBuf;
-	for(dwI =0; dwI <48; dwI++)
-	{
-		for(dwJ=0; dwJ<out_w; dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-	}
-	pDestBuf += 48*in_w*2;
-	memcpy(pDestBuf,pSrcBuf,in_h*in_w*2);
-	pDestBuf +=in_h*in_w*2;
-	pDstYUV = pDestBuf;
-	for(dwI =0; dwI <48; dwI++)
-	{
-		for(dwJ=0; dwJ<out_w; dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-	}
-
-}
-
-static void SD_PAL_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	// int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	//   int *pSrcData;
-	//int *pDestData;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	// PAL 720X576  NTSC 720X480
-	memcpy(pDestBuf,(pSrcBuf+48*in_w*2),out_h*out_w*2);
-
-}
-static void SD_NTSC_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	int dwJ;
-	BYTE*pDstYUV;
-
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-
-
-	// PAL 720X480   x*2 =1440,(y-36)*2= 1080
-
-	//--- 60 line
-	for(y=0;y<60;y++)
-	{
-		pDstYUV = pDestBuf;
-		for(dwJ=0; dwJ<out_w; dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-		pDestBuf +=out_w*2;
-	}
-	//---
-	for(y=0;y<(out_h-120);)
-	{
-		pDstYUV = pDestBuf;
-		for(dwJ=0; dwJ<240; dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-		pDestBuf +=240*2;
-		for(x=0;x<720;)
-		{
-
-			pDestBuf[0] = pSrcBuf[0];//y
-			pDestBuf[1] = pSrcBuf[1];//cb
-
-			pDestBuf[2] = pSrcBuf[0];//y
-			pDestBuf[3] = pSrcBuf[3];//cr
-
-			pDestBuf[4] = pSrcBuf[2];//y
-			pDestBuf[5] = pSrcBuf[1];//cb
-
-			pDestBuf[6] = pSrcBuf[2];//y
-			pDestBuf[7] = pSrcBuf[3];//cr
-
-			pSrcBuf +=4;
-			pDestBuf +=8;
-			x= x+2;
-		}
-		pDstYUV = pDestBuf;
-		for(dwJ=0; dwJ<240; dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-		pDestBuf +=240*2;
-		//------------copy line
-		memcpy(pDestBuf,pDestBuf-(out_w*2),out_w*2);
-		pDestBuf += out_w*2;
-		y = y+2;
-		//------------------
-	}
-	//-- 60 line
-	for(y=0;y<60;y++)
-	{
-		pDstYUV = pDestBuf;
-		for(dwJ=0; dwJ<out_w; dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-		pDestBuf +=out_w*2;
-
-	}
-	//---
-}
-
-static void SD_PAL_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	int dwJ;
-	BYTE*pDstYUV;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	// PAL 720X576   x*2 =1440,(y-36)*2= 1080
-	pSrcBuf = pSrcBuf+18*in_w*2;
-	for(y=0;y<out_h;)
-	{
-		pDstYUV = pDestBuf;
-		for(dwJ=0; dwJ<240; dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-		pDestBuf +=240*2;
-		for(x=0;x<720;)
-		{
-
-			pDestBuf[0] = pSrcBuf[0];//y
-			pDestBuf[1] = pSrcBuf[1];//cb
-
-			pDestBuf[2] = pSrcBuf[0];//y
-			pDestBuf[3] = pSrcBuf[3];//cr
-
-			pDestBuf[4] = pSrcBuf[2];//y
-			pDestBuf[5] = pSrcBuf[1];//cb
-
-			pDestBuf[6] = pSrcBuf[2];//y
-			pDestBuf[7] = pSrcBuf[3];//cr
-
-			pSrcBuf +=4;
-			pDestBuf +=8;
-			x= x+2;
-		}
-		pDstYUV = pDestBuf;
-		for(dwJ=0; dwJ<240; dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-		pDestBuf +=240*2;
-		//------------copy line
-		memcpy(pDestBuf,pDestBuf-(out_w*2),out_w*2);
-		pDestBuf += out_w*2;
-		y = y+2;
-		//------------------
-	}
-
-
-}
-
-static void SD_PAL_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	// int dwJ;
-	//   BYTE*pDstYUV;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-
-
-	// PAL 720X576   640X360-> 1280*720
-	pSrcBuf = pSrcBuf+108*in_w*2;
-	for(y=0;y<out_h;)
-	{
-		pSrcBuf += 40*2;
-		for(x=0;x<640;)
-		{
-
-			pDestBuf[0] = pSrcBuf[0];//y
-			pDestBuf[1] = pSrcBuf[1];//cb
-
-			pDestBuf[2] = pSrcBuf[0];//y
-			pDestBuf[3] = pSrcBuf[3];//cr
-
-			pDestBuf[4] = pSrcBuf[2];//y
-			pDestBuf[5] = pSrcBuf[1];//cb
-
-			pDestBuf[6] = pSrcBuf[2];//y
-			pDestBuf[7] = pSrcBuf[3];//cr
-
-			pSrcBuf +=4;
-			pDestBuf +=8;
-			x= x+2;
-		}
-		pSrcBuf += 40*2;
-		//------------copy line
-		memcpy(pDestBuf,pDestBuf-(out_w*2),out_w*2);
-		pDestBuf += out_w*2;
-		y= y+2;
-		//------------------
-	}
-
-
-}
-static void V1280X1024_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	pSrcBuf = pSrcBuf+152*in_w*2;
-	HD_To_FHD_Scaler(pSrcBuf,pDestBuf,1280,720,out_w,out_h);
-}
-void V1280X1024_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	pSrcBuf = pSrcBuf+152*in_w*2;
-	memcpy(pDestBuf,pSrcBuf,out_h*out_w*2);
-
-}
-void V1280X1024_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	pSrcBuf = pSrcBuf+152*in_w*2;
-	HD_To_800X600_Scaler(pSrcBuf,pDestBuf,1280,720,out_w,out_h);
-
-
-}
-
-void SD_NTSC_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	//   int dwJ;
-	//BYTE*pDstYUV;
-	// PAL 720X480   640X360-> 1280*720
-	pSrcBuf = pSrcBuf+60*in_w*2;
-	for(y=0;y<out_h;)
-	{
-		pSrcBuf += 40*2;
-		for(x=0;x<640;)
-		{
-
-			pDestBuf[0] = pSrcBuf[0];//y
-			pDestBuf[1] = pSrcBuf[1];//cb
-
-			pDestBuf[2] = pSrcBuf[0];//y
-			pDestBuf[3] = pSrcBuf[3];//cr
-
-			pDestBuf[4] = pSrcBuf[2];//y
-			pDestBuf[5] = pSrcBuf[1];//cb
-
-			pDestBuf[6] = pSrcBuf[2];//y
-			pDestBuf[7] = pSrcBuf[3];//cr
-
-			pSrcBuf +=4;
-			pDestBuf +=8;
-			x= x+2;
-		}
-		pSrcBuf += 40*2;
-		//------------copy line
-		memcpy(pDestBuf,pDestBuf-(out_w*2),out_w*2);
-		pDestBuf += out_w*2;
-		y= y+2;
-		//------------------
-	}
-
-
-}
-
-void FHD_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	int *pSrcData;
-	int *pDestData;
-	pSrcBuf = pSrc;
-	pDestData = (int *) pOut;
-	for(y=0;y<in_h;y++)
-	{
-		if(y%3 != 2)
-		{
-			for(x=0;x<in_w;)
-			{
-				pSrcData =(int *)pSrcBuf;
-				*pDestData = *pSrcData;
-				if(x%2==1)
-				{
-					pDestBuf =(BYTE *)pDestData;
-					pDestBuf[1] = pSrcBuf[3];
-					pDestBuf [3] = pSrcBuf[1];
-				}
-				pDestData +=1;
-				pSrcBuf +=6;
-				x= x+3;
-			}
-		}
-		else
-		{
-			pSrcBuf += in_w*2;
-		}
-
-	}
-
-}
-void HD_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-
-	int x,y;
-	BYTE*pSrcBuf;
-	//BYTE*pDestBuf;
-	DWORD *pSrcData;
-	DWORD *pDestData;
-	int    out_w_size;
-	//BYTE*pSrcTmp;
-	BYTE*pDestTmp;
-	out_w_size = out_w*2;
-	pDestData = (DWORD *) pOut;
-	pSrcData = (DWORD *) pSrc;
-	for(y=0;y<out_h;y++)
-	{
-
-		if((y%3)==2)
-		{
-			pSrcBuf = (BYTE*)pDestData;
-			memcpy(pSrcBuf,(BYTE*)(pSrcBuf-out_w_size),out_w_size);
-			pDestData += out_w_size/4;
-		}
-		else
-		{
-
-			for(x=0;x<out_w;)
-			{
-				*pDestData = *pSrcData;
-				pDestData ++;
-				pSrcData++;
-
-				*pDestData = *pSrcData;
-				pDestTmp =(BYTE*)pDestData;
-				pDestTmp[2] = pDestTmp[0];
-				pDestData ++;
-
-				*pDestData = *pSrcData;
-				pDestTmp =(BYTE*)pDestData;
-				pDestTmp[0] = pDestTmp[2];
-				pSrcData++;
-				pDestData++;
-				x= x+6;
-			}
-
-		}
-
-
-	}
-
-
-}
-void FHD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	BYTE *pSrcData;
-	//   BYTE *pDestData;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	//-- 1920X1080 0->720X480
-	pSrcBuf = pSrcBuf + 60*in_w*2;
-	for(y=0;y<out_h;)
-	{
-		pSrcData = pSrcBuf + 240*2;
-		for(x =0;x<720;)
-		{
-			pDestBuf[0] = pSrcData[0];//y
-			pDestBuf[1] = pSrcData[1];//cb
-
-			pDestBuf[2] = pSrcData[4];//y
-			pDestBuf[3] = pSrcData[3];//cr
-
-			x = x+ 2;
-			pSrcData +=8;
-			pDestBuf +=4;
-		}
-		pSrcBuf += in_w*4;
-		y= y+1;
-	}
-
-}
-void FHD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	BYTE *pSrcData;
-	BYTE*pDstYUV;
-	//   BYTE *pDestData;
-	int dwJ;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-
-	//-- 1920X1080 0->720X576
-	//-------------------
-	pDstYUV = pDestBuf;
-	for(dwJ=0; dwJ<18*out_w; dwJ++)
-	{
-		pDstYUV[0] = 0x10;
-		pDstYUV[1] = 0x80;
-		pDstYUV +=2;
-	}
-	//------------------
-	pDestBuf += 18*out_w*2;
-	for(y=0;y<540;)
-	{
-		pSrcData = pSrcBuf + 240*2;
-		for(x =0;x<720;)
-		{
-			pDestBuf[0] = pSrcData[0];//y
-			pDestBuf[1] = pSrcData[1];//cb
-
-			pDestBuf[2] = pSrcData[4];//y
-			pDestBuf[3] = pSrcData[3];//cr
-
-			x = x+ 2;
-			pSrcData +=8;
-			pDestBuf +=4;
-		}
-		pSrcBuf += in_w*4;
-		y= y+1;
-	}
-	//------------
-	pDstYUV = pDestBuf;
-	for(dwJ=0; dwJ<18*out_w; dwJ++)
-	{
-		pDstYUV[0] = 0x10;
-		pDstYUV[1] = 0x80;
-		pDstYUV +=2;
-	}
-	//------------
-}
-
-void HD_To_SD_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	//int *pSrcData;
-	// int *pDestData;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	//-- 1280X720 ->720X480
-	pSrcBuf = pSrcBuf + 120*in_w*2;
-	for(y=0;y<out_h;)
-	{
-		memcpy(pDestBuf,pSrcBuf+280*2,out_w*2);
-		pSrcBuf += in_w*2;
-		pDestBuf += out_w*2;
-		y= y+1;
-	}
-
-}
-void HD_To_SD_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	//int dwJ;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	//BYTE*pDstYUV;
-	//-- 1920X1080 0->720X576
-	pSrcBuf = pSrcBuf + 72*in_w*2;
-	for(y=0;y<out_h;)
-	{
-		memcpy(pDestBuf,pSrcBuf+280*2,out_w*2);
-		pSrcBuf += in_w*2;
-		pDestBuf += out_w*2;
-		y= y+1;
-	}
-}
-void V1280X1024_NTSC_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	//   BYTE*pDstYUV;
-	//-- 1280X1024 0->720X480
-	pSrcBuf = pSrcBuf + 272*in_w*2;
-	for(y=0;y<out_h;)
-	{
-		memcpy(pDestBuf,pSrcBuf+280*2,out_w*2);
-		pSrcBuf += in_w*2;
-		pDestBuf += out_w*2;
-		y= y+1;
-	}
-}
-
-void V1280X1024_PAL_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	//   BYTE*pDstYUV;
-	//-- 1280x1024 0->720X576
-	pSrcBuf = pSrcBuf + 224*in_w*2;
-	for(y=0;y<out_h;)
-	{
-		memcpy(pDestBuf,pSrcBuf+280*2,out_w*2);
-		pSrcBuf += in_w*2;
-		pDestBuf += out_w*2;
-		y= y+1;
-	}
-}
-void All_VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	BYTE *pDstYUV;
-	int  missX=0;
-	int  missY=0;
-	int  dumyX=0;
-	int  dumyY=0;
-	int dwJ;
-	int  y;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	if(in_w>out_w)
-	{
-		missX = (in_w-out_w)/2;
-	}
-	else
-	{
-		dumyX = (out_w- in_w)/2;
-
-	}
-	if(in_h>out_h)
-	{
-		missY = (in_h-out_h)/2;
-	}
-	else
-	{
-		dumyY = (out_h - in_h)/2;
-	}
-	if(dumyY>0)
-	{
-		pDstYUV = pDestBuf;
-		for(dwJ=0; dwJ<(dumyY*out_w); dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-		pDestBuf = pDestBuf+dumyY*out_w*2;
-	}
-	if(missY>0)
-	{
-		pSrcBuf += missY*in_w*2;
-	}
-	//----------
-
-	for(y=0;y<(out_h-(dumyY*2));y++)
-	{
-		if(dumyX>0)
-		{
-			pDstYUV = pDestBuf;
-			for(dwJ=0; dwJ<dumyX; dwJ++)
-			{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
-			}
-			pDestBuf += dumyX*2;
-		}
-		memcpy(pDestBuf,pSrcBuf+missX*2,(out_w-(dumyX*2))*2);
-		pSrcBuf += in_w*2;
-		pDestBuf += (out_w-(dumyX*2))*2;
-		if(dumyX>0)
-		{
-			pDstYUV = pDestBuf;
-			for(dwJ=0; dwJ<dumyX; dwJ++)
-			{
-				pDstYUV[0] = 0x10;
-				pDstYUV[1] = 0x80;
-				pDstYUV +=2;
-			}
-			pDestBuf += dumyX*2;
-		}
-	}
-	if(dumyY>0)
-	{
-		pDstYUV = pDestBuf;
-		for(dwJ=0; dwJ<(dumyY*out_w); dwJ++)
-		{
-			pDstYUV[0] = 0x10;
-			pDstYUV[1] = 0x80;
-			pDstYUV +=2;
-		}
-
-	}
-
-}
-
-static void UHD_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	//   BYTE*pDestBuf;
-	BYTE *pSrcData;
-	BYTE *pDestData;
-	pSrcBuf = pSrc;
-	pDestData = (BYTE *) pOut;
-	for(y=0;y<in_h;y++)
-	{
-		switch(y%18)
-		{
-			case 0:
-			case 4:
-			case 8:
-			case 12:
-			case 16:
-			{
-				pSrcBuf = pSrc + (y*in_w*2)+(480*2);
-				for(x=0;x<(in_w-960);)
-				{
-					pSrcData =(BYTE *)pSrcBuf;
-
-					pDestData[0] = pSrcData[0];
-					pDestData[1] = pSrcData[1];
-					pDestData[2] = pSrcData[8];
-					pDestData[3] = pSrcData[7];
-
-					pDestData[4] = pSrcData[16];
-					pDestData[5] = pSrcData[17];
-					pDestData[6] = pSrcData[24];
-					pDestData[7] = pSrcData[23];
-
-					pDestData[8] = pSrcData[32];
-					pDestData[9] = pSrcData[33];
-					pDestData[10] = pSrcData[36];
-					pDestData[11] = pSrcData[35];
-
-					pDestData[12] = pSrcData[44];
-					pDestData[13] = pSrcData[45];
-					pDestData[14] = pSrcData[52];
-					pDestData[15] = pSrcData[51];
-
-					pDestData[16] = pSrcData[60];
-					pDestData[17] = pSrcData[61];
-					pDestData[18] = pSrcData[68];
-					pDestData[19] = pSrcData[67];
-
-
-					pSrcBuf +=18*4;
-					pDestData +=5*4;
-					x= x+18*2;
-				}
-				break;
-			}
-			default:
-			{
-				break;
-			}
-		}
-
-	}
-
-}
-static void UHDW_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	//BYTE*pDestBuf;
-	BYTE *pSrcData;
-	BYTE *pDestData;
-	pSrcBuf = pSrc;
-	pDestData = (BYTE *) pOut;
-	for(y=0;y<in_h;y++)
-	{
-
-		switch(y%18)
-		{
-			case 0:
-			case 4:
-			case 8:
-			case 12:
-			case 16:
-			{
-				pSrcBuf = pSrc + (y*in_w*2)+((480+128)*2);
-				for(x=0;x<(3840-960);)
-				{
-					pSrcData =(BYTE *)pSrcBuf;
-
-					pDestData[0] = pSrcData[0];
-					pDestData[1] = pSrcData[1];
-					pDestData[2] = pSrcData[8];
-					pDestData[3] = pSrcData[7];
-
-					pDestData[4] = pSrcData[16];
-					pDestData[5] = pSrcData[17];
-					pDestData[6] = pSrcData[24];
-					pDestData[7] = pSrcData[23];
-
-					pDestData[8] = pSrcData[32];
-					pDestData[9] = pSrcData[33];
-					pDestData[10] = pSrcData[36];
-					pDestData[11] = pSrcData[35];
-
-					pDestData[12] = pSrcData[44];
-					pDestData[13] = pSrcData[45];
-					pDestData[14] = pSrcData[52];
-					pDestData[15] = pSrcData[51];
-
-					pDestData[16] = pSrcData[60];
-					pDestData[17] = pSrcData[61];
-					pDestData[18] = pSrcData[68];
-					pDestData[19] = pSrcData[67];
-
-
-					pSrcBuf +=18*4;
-					pDestData +=5*4;
-					x= x+18*2;
-				}
-				break;
-			}
-			default:
-			{
-				break;
-			}
-		}
-
-	}
-
-}
-
-static void V2560X1440_To_800X600_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	BYTE*pSrcData;
-	//BYTE*pDstYUV;
-
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-
-	//-- V2560X1440->1280X720
-	for(y=0;y<out_h;y++)
-	{
-		pSrcData = pSrcBuf + 480*2;
-		for(x =0;x<out_w;)
-		{
-			pDestBuf[0] = pSrcData[0];//y
-			pDestBuf[1] = pSrcData[1];//cb
-
-			pDestBuf[2] = pSrcData[4];//y
-			pDestBuf[3] = pSrcData[3];//cr
-
-			x = x+ 2;
-			pSrcData += 8;
-			pDestBuf +=4;
-		}
-
-		pSrcBuf += in_w*4;
-	}
-
-}
-
-static  void UHD_TO_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	// BYTE*pDstYUV;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-
-	//-- 3840x2160 0->1920X1080
-	for(y=0;y<out_h;y++)
-	{
-		for(x =0;x<out_w;)
-		{
-			pDestBuf[0] = pSrcBuf[0];//y
-			pDestBuf[1] = pSrcBuf[1];//cb
-
-			pDestBuf[2] = pSrcBuf[4];//y
-			pDestBuf[3] = pSrcBuf[3];//cr
-
-			x = x+ 2;
-			pSrcBuf +=8;
-			pDestBuf +=4;
-		}
-		pSrcBuf += in_w*2;
-	}
-}
-static void UHD_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	DWORD *pSrcData;
-	DWORD *pDestData;
-	BYTE*pSrcTmp;
-	BYTE*pDestTmp;
-
-	pSrcBuf = pSrc;
-	pDestData = (DWORD *) pOut;
-	//----------3840x2160->1280x720
-	for(y=0;y<in_h;y++)
-	{
-		if(y%3 == 0)
-		{
-			for(x=0;x<in_w;)
-			{
-				pSrcData =(DWORD *)pSrcBuf;
-				*pDestData = *pSrcData;
-				pDestTmp =(BYTE *)pDestData;
-				pSrcData++;
-				pSrcTmp =(BYTE *)pSrcData;
-				pDestTmp[2] =  pSrcTmp[2];
-				pDestTmp[3] =  pSrcTmp[3];
-
-				pDestData +=1;
-				pSrcBuf +=12;
-				x= x+6;
-			}
-		}
-		else
-		{
-			pSrcBuf += in_w*2;
-		}
-
-	}
-
-}
-
-static  void UHD_To_2560x1440_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	DWORD *pSrcData;
-	DWORD *pDestData;
-	BYTE*pSrcTmp;
-	BYTE*pDestTmp;
-
-	pSrcBuf = pSrc;
-	pDestData = (DWORD *) pOut;
-	//----------3840x2160->2560X1440
-	for(y=0;y<in_h;y++)
-	{
-		switch(y%6)
-		{
-			case 0:
-			case 2:
-			case 4:
-			case 5:
-			{
-				for(x=0;x<in_w;)
-				{
-					pSrcData =(DWORD *)pSrcBuf;
-					*pDestData = *pSrcData;
-					pDestTmp =(BYTE *)pDestData;
-					pSrcData++;
-					pSrcTmp =(BYTE *)pSrcData;
-					pDestTmp[2] =  pSrcTmp[0];
-					pDestTmp[3] =  pSrcTmp[3];
-					pDestData +=1;
-
-					pSrcData++;
-					*pDestData = *pSrcData;
-					pDestData +=1;
-
-					pSrcBuf +=12;
-					x= x+6;
-				}
-				break;
-			}
-			case 1:
-			case 3:
-			{
-				pSrcBuf += in_w*2;
-				break;
-			}
-		}
-
-	}
-
-}
-static void UHDW_To_2560X1440_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	DWORD *pSrcData;
-	DWORD *pDestData;
-	BYTE*pSrcTmp;
-	BYTE*pDestTmp;
-
-	pSrcBuf = pSrc;
-	pDestData = (DWORD *) pOut;
-	//----------4096x2160->2560x1440
-	for(y=0;y<in_h;y++)
-	{
-		switch(y%6)
-		{
-			case 0:
-			case 2:
-			case 4:
-			case 5:
-			{
-				pSrcData = (DWORD *)(pSrcBuf + 128*2);
-				for(x=0;x<(in_w-256);)
-				{
-					*pDestData = *pSrcData;
-					pDestTmp =(BYTE *)pDestData;
-					pSrcData++;
-					pSrcTmp =(BYTE *)pSrcData;
-					pDestTmp[2] =  pSrcTmp[0];
-					pDestTmp[3] =  pSrcTmp[3];
-					pDestData +=1;
-					pSrcData++;
-					*pDestData = *pSrcData;
-
-					pDestData +=1;
-					pSrcData +=2;
-					x= x+6;
-				}
-
-				pSrcBuf += in_w*2;
-				break;
-			}
-			case 1:
-			case 3:
-			{
-				pSrcBuf += in_w*2;
-				break;
-			}
-		}
-
-	}
-
-}
-static  void UHDW_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	DWORD *pSrcData;
-	DWORD *pDestData;
-	BYTE*pSrcTmp;
-	BYTE*pDestTmp;
-
-	pSrcBuf = pSrc;
-	pDestData = (DWORD *) pOut;
-	//----------4096x2160->1280x720
-	for(y=0;y<in_h;y++)
-	{
-		if(y%3 == 0)
-		{
-			pSrcData = (DWORD *)(pSrcBuf + 128*2);
-			for(x=0;x<(in_w-256);)
-			{
-				*pDestData = *pSrcData;
-				pDestTmp =(BYTE *)pDestData;
-				pSrcData++;
-				pSrcTmp =(BYTE *)pSrcData;
-				pDestTmp[2] =  pSrcTmp[0];
-				pDestTmp[3] =  pSrcTmp[3];
-
-				pDestData +=1;
-				pSrcData +=2;
-				x= x+6;
-			}
-			pSrcBuf += in_w*2;
-		}
-		else
-		{
-			pSrcBuf += in_w*2;
-		}
-
-	}
-
-}
-
-static void UHDW_TO_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	BYTE*pSrcData;
-	//BYTE*pDstYUV;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-
-	//-- 4096x2160 0->1920X1080
-	for(y=0;y<out_h;y++)
-	{
-		pSrcData = pSrcBuf + 128*2;
-		for(x =0;x<out_w;)
-		{
-			pDestBuf[0] = pSrcData[0];//y
-			pDestBuf[1] = pSrcData[1];//cb
-
-			pDestBuf[2] = pSrcData[4];//y
-			pDestBuf[3] = pSrcData[3];//cr
-
-			x = x+ 2;
-			pSrcData +=8;
-			pDestBuf +=4;
-		}
-		pSrcBuf += in_w*4;
-	}
-}
-
-static  void V2560X1440_To_FHD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-
-{
-
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	DWORD *pSrcData;
-	DWORD *pDestData;
-	BYTE*pSrcTmp;
-	BYTE*pDestTmp;
-	pDestData = (DWORD *) pOut;
-	pSrcData = (DWORD *) pSrc;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-	//2560X1440 -> 1920X1080
-	for(y=0;y<in_h;y++)
-	{
-
-		if((y%4)==3)
-		{
-			pSrcBuf += in_w*2;
-		}
-		else
-		{
-			pSrcData =  (DWORD *) pSrcBuf;
-			pDestData = (DWORD *) pDestBuf;
-			for(x=0;x<in_w;)
-			{
-				*pDestData = *pSrcData;
-				pDestData ++;
-				pSrcData++;
-
-				*pDestData = *pSrcData;
-				pDestTmp =(BYTE*)pDestData;
-				pSrcData++;
-				pSrcTmp =(BYTE*)pSrcData;
-				pDestTmp[2] = pSrcTmp[0];
-
-				pDestData ++;
-				pDestTmp =(BYTE*)pDestData;
-				pDestTmp[0] = pSrcTmp[2];
-				pDestTmp[1] = pSrcTmp[1];
-				pSrcData++;
-				pSrcTmp =(BYTE*)pSrcData;
-				pDestTmp[2] = pSrcTmp[2];
-				pDestTmp[3] = pSrcTmp[3];
-
-				pSrcData++;
-				pDestData++;
-
-				x= x+8;
-			}
-			pDestBuf += out_w*2;
-			pSrcBuf += in_w*2;
-		}
-
-
-	}
-
-
-}
-
-static  void V2560X1440_To_HD_Scaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	int x,y;
-	BYTE*pSrcBuf;
-	BYTE*pDestBuf;
-	//BYTE*pDstYUV;
-	pSrcBuf = pSrc;
-	pDestBuf = pOut;
-
-	//-- V2560X1440->1280X720
-	for(y=0;y<out_h;y++)
-	{
-		for(x =0;x<out_w;)
-		{
-			pDestBuf[0] = pSrcBuf[0];//y
-			pDestBuf[1] = pSrcBuf[1];//cb
-
-			pDestBuf[2] = pSrcBuf[4];//y
-			pDestBuf[3] = pSrcBuf[3];//cr
-
-			x = x+ 2;
-			pSrcBuf +=8;
-			pDestBuf +=4;
-		}
-		pSrcBuf += in_w*2;
-	}
-}
-
-//---------------------------------
-static void VideoScaler(BYTE *pSrc,BYTE *pOut,int in_w,int in_h,int out_w,int out_h)
-{
-	if((in_w == 1920)&&(in_h==1080)&&(out_w==1280)&&(out_h==720))
-	{
-		FHD_To_HD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1920)&&(in_h==1080)&&(out_w==800)&&(out_h==600))
-	{
-		FHD_To_800X600_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else  if((in_w == 3840)&&(in_h==2160)&&(out_w==800)&&(out_h==600))
-	{
-		UHD_To_800X600_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else  if((in_w == 4096)&&(in_h==2160)&&(out_w==800)&&(out_h==600))
-	{
-		UHDW_To_800X600_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1280)&&(in_h==720)&&(out_w==1920)&&(out_h==1080))
-	{
-		HD_To_FHD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1280)&&(in_h==720)&&(out_w==800)&&(out_h==600))
-	{
-		HD_To_800X600_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 720)&&(in_h==576)&&(out_w==720)&&(out_h==480))
-	{
-		SD_PAL_To_SD_NTSC_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 720)&&(in_h==480)&&(out_w==720)&&(out_h==576))
-	{
-		SD_NTSC_To_SD_PAL_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 720)&&(in_h==576)&&(out_w==1920)&&(out_h==1080))
-	{
-		SD_PAL_To_FHD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 720)&&(in_h==480)&&(out_w==1920)&&(out_h==1080))
-	{
-		SD_NTSC_To_FHD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 720)&&(in_h==576)&&(out_w==1280)&&(out_h==720))
-	{
-		SD_PAL_To_HD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 720)&&(in_h==480)&&(out_w==1280)&&(out_h==720))
-	{
-		SD_NTSC_To_HD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1280)&&(in_h==1024)&&(out_w==1920)&&(out_h==1080))
-	{
-		V1280X1024_To_FHD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1280)&&(in_h==1024)&&(out_w==1280)&&(out_h==720))
-	{
-		V1280X1024_To_HD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1280)&&(in_h==1024)&&(out_w==800)&&(out_h==600))
-	{
-		V1280X1024_To_800X600_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1920)&&(in_h==1080)&&(out_w==720)&&(out_h==480))
-	{
-		FHD_To_SD_NTSC_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1920)&&(in_h==1080)&&(out_w==720)&&(out_h==576))
-	{
-		FHD_To_SD_PAL_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1280)&&(in_h==720)&&(out_w==720)&&(out_h==480))
-	{
-		HD_To_SD_NTSC_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1280)&&(in_h==720)&&(out_w==720)&&(out_h==576))
-	{
-		HD_To_SD_PAL_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1280)&&(in_h==1024)&&(out_w==720)&&(out_h==480))
-	{
-		V1280X1024_NTSC_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 1280)&&(in_h==1024)&&(out_w==720)&&(out_h==576))
-	{
-		V1280X1024_PAL_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 3840)&&(in_h==2160)&&(out_w==1920)&&(out_h==1080))
-	{
-		UHD_TO_FHD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 3840)&&(in_h==2160)&&(out_w==2560)&&(out_h==1440))
-	{
-		UHD_To_2560x1440_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 3840)&&(in_h==2160)&&(out_w==1280)&&(out_h==720))
-	{
-		UHD_To_HD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 4096)&&(in_h==2160)&&(out_w==1920)&&(out_h==1080))
-	{
-		UHDW_TO_FHD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 4096)&&(in_h==2160)&&(out_w==1280)&&(out_h==720))
-	{
-		UHDW_To_HD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 4096)&&(in_h==2160)&&(out_w==2560)&&(out_h==1440))
-	{
-		UHDW_To_2560X1440_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 2560)&&(in_h==1440)&&(out_w==1920)&&(out_h==1080))
-	{
-		V2560X1440_To_FHD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 2560)&&(in_h==1440)&&(out_w==1280)&&(out_h==720))
-	{
-		V2560X1440_To_HD_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else if((in_w == 2560)&&(in_h==1440)&&(out_w==800)&&(out_h==600))
-	{
-		V2560X1440_To_800X600_Scaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-	else
-	{
-		All_VideoScaler(pSrc,pOut,in_w,in_h,out_w,out_h);
-	}
-}
 static int  MemCopyFrame(int nDecoder,BYTE * dest,int nWidth,int nHeight,int interlace,BYTE *src[4],int len[4])
 {
 	int nCopySize[4];
@@ -3237,6 +1888,8 @@ static bool hws_iommu_translates(struct device *dev)
  */
 static const char *hws_zc_unavailable(struct hws_pcie_dev *pdx)
 {
+	if (!hws_zc_memops())
+		return "kernel built without videobuf2-dma-contig";
 	if (!pdx->m_DeviceHW_Version || !pdx->m_MaxHWVideoBufferSize)
 		return "needs FPGA 122 or later";
 	if (pdx->pdev->vendor != 0x8888 || pdx->pdev->device != 0x8581)
@@ -3286,13 +1939,13 @@ static u32 *hws_zc_mark(struct hws_pcie_dev *pdx, struct hwsvideo_buffer *buf, i
  */
 static bool hws_zc_buffer_ok(struct hws_pcie_dev *pdx, struct hwsvideo_buffer *buf)
 {
-	u32 max = 0, end;
+	u32 len[4], end;
 	u64 first, last;
 	int q;
 
 	for (q = 0; q < 4; q++)
-		max = max_t(u32, max, pdx->m_format[q].HLAF_SIZE);
-	end = hws_zc_off(pdx, 3) + max + 2048;
+		len[q] = pdx->m_format[q].HLAF_SIZE;
+	end = hws_zc_span(len);
 	if (!buf->dma || !buf->mem || vb2_plane_size(&buf->vb.vb2_buf, 0) < end)
 		return false;
 	first = buf->dma & ~(u64)PCI_E_BAR_ADD_LOWMASK;
@@ -3313,8 +1966,8 @@ static void hws_zc_release(struct hws_video *v)
 
 	list_for_each_entry_safe(buf, tmp, &v->zc_release, queue) {
 		if (buf == v->zc_prog[0] || buf == v->zc_prog[1] ||
-		    (s32)(v->zc_ev[0] - buf->zc_free_after[0]) < 0 ||
-		    (s32)(v->zc_ev[1] - buf->zc_free_after[1]) < 0)
+		    hws_ev_before(v->zc_ev[0], buf->zc_free_after[0]) ||
+		    hws_ev_before(v->zc_ev[1], buf->zc_free_after[1]))
 			continue;
 		list_del(&buf->queue);
 		if (buf->zc_state == VB2_BUF_STATE_DONE)
@@ -3376,7 +2029,7 @@ static struct hwsvideo_buffer *hws_zc_pick(struct hws_pcie_dev *pdx, bool direct
 		return NULL;
 	spin_lock_irqsave(&v->consumers_lock, flags);
 	list_for_each_entry(ctx, &v->consumers, node) {
-		if (ctx->streaming && ctx->decimate == 1 && ctx->vbq.mem_ops == &vb2_dma_contig_memops &&
+		if (ctx->streaming && ctx->decimate == 1 && ctx->vbq.mem_ops == hws_zc_memops() &&
 		    (!found || ctx == v->zc_ctx))
 			found = ctx;
 	}
@@ -4061,11 +2714,11 @@ int hws_audio_register(struct hws_pcie_dev *dev)
 		snd_pcm_lib_preallocate_pages_for_all(
 			pcm,
 			SNDRV_DMA_TYPE_CONTINUOUS,
-			#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,19,0))
-			card->dev,
-			#else
+			#ifdef snd_dma_continuous_data	/* a macro until 5.19; RHEL 9.10 drops it too */
 			snd_dma_continuous_data(GFP_KERNEL),
-											  #endif
+			#else
+			card->dev,
+			#endif
 											  audio_pcm_hardware.buffer_bytes_max,
 										audio_pcm_hardware.buffer_bytes_max
 		);
@@ -4221,22 +2874,15 @@ static void EnableAudioCapture(struct hws_pcie_dev *pdx,int index,int en)
 
 static int SetVideoFormteSize(struct hws_pcie_dev *pdx,int ch,int w,int h)
 {
+	u32 len[4];
 	int hf_size;
 	int hf_size2;
-	//int frame_size;
 	if(ch !=0) return -1;
 
-	hf_size = (w*h*2)/(4*16*128);
-	hf_size = hf_size*16*128;
-
-	hf_size2 = (w*h*2)/(4*16*128);
-	hf_size2 = w*h*2 -(hf_size2*16*128*3);
-	if(hf_size2 <0)
-	{
+	if (hws_quarter_sizes(w, h, len) < 0)
 		return -1;
-	}
-	hf_size2 = hf_size2/(16*128);
-	hf_size2 = (hf_size2+1)*16*128;
+	hf_size = len[0];
+	hf_size2 = len[3];
 	/*
 	 * The card DMAs each quarter into one buffer whose last
 	 * MAX_AUDIO_CAP_SIZE bytes hold the audio ring. A larger quarter would
@@ -4942,27 +3588,11 @@ static void DpcForIsr_Audio0(unsigned long data)
  */
 static void hws_frame_end(struct hws_pcie_dev *pdx, int ch, u64 now)
 {
-	u64 prev = pdx->m_FrameEndNs[ch];
-	u64 elapsed, d, unit;
+	u64 iv = hws_rate_frame_end(&pdx->m_RateWin[ch], now);
 
-	pdx->m_FrameEndNs[ch] = now;
-	if (!prev || now - prev > 200 * NSEC_PER_MSEC || !pdx->m_RateWinStartNs[ch]) {
-		pdx->m_RateWinStartNs[ch] = now;
-		pdx->m_RateWinFrames[ch] = 0;
-		pdx->m_RateMinDeltaNs[ch] = 0;
-		return;
-	}
-	d = now - prev;
-	if (!pdx->m_RateMinDeltaNs[ch] || d < pdx->m_RateMinDeltaNs[ch])
-		pdx->m_RateMinDeltaNs[ch] = d;
-	unit = pdx->m_RateMinDeltaNs[ch];
-	pdx->m_RateWinFrames[ch] += max_t(u32, 1, (u32)div64_u64(d + unit / 2, unit));
-	elapsed = now - pdx->m_RateWinStartNs[ch];
-	if (elapsed >= NSEC_PER_SEC) {
-		WRITE_ONCE(pdx->m_FrameIntervalNs[ch], div_u64(elapsed, pdx->m_RateWinFrames[ch]));
+	if (iv) {
+		WRITE_ONCE(pdx->m_FrameIntervalNs[ch], iv);
 		WRITE_ONCE(pdx->m_RateUpdatedNs[ch], now);
-		pdx->m_RateWinStartNs[ch] = now;
-		pdx->m_RateWinFrames[ch] = 0;
 	}
 }
 
@@ -4987,16 +3617,10 @@ static u32 hws_hw_fps(struct hws_pcie_dev *pdx, int ch)
  */
 static bool hws_input_timeperframe(struct hws_pcie_dev *pdx, int ch, struct v4l2_fract *tpf)
 {
-	static const struct v4l2_fract standard[] = {
-		{ 1001, 24000 }, { 1, 24 }, { 1, 25 }, { 1001, 30000 }, { 1, 30 },
-		{ 1, 50 }, { 1001, 60000 }, { 1, 60 }, { 1, 100 }, { 1001, 120000 },
-		{ 1, 120 }, { 1, 144 }, { 1, 240 },
-	};
 	u64 meas = READ_ONCE(pdx->m_FrameIntervalNs[ch]);
 	u64 at = READ_ONCE(pdx->m_RateUpdatedNs[ch]);
-	u64 best_err = U64_MAX, std;
 	u32 fps, tol = 200;	/* 1/200 = 0.5% */
-	int i, best = -1;
+	int i;
 
 	if (!meas || !pdx->m_bVCapStarted[ch] || ktime_get_ns() - at > 2 * NSEC_PER_SEC) {
 		fps = hws_hw_fps(pdx, ch);
@@ -5007,16 +3631,10 @@ static bool hws_input_timeperframe(struct hws_pcie_dev *pdx, int ch, struct v4l2
 			return false;
 		}
 	}
-	for (i = 0; i < ARRAY_SIZE(standard); i++) {
-		std = div_u64((u64)standard[i].numerator * NSEC_PER_SEC, standard[i].denominator);
-		if ((meas > std ? meas - std : std - meas) < best_err) {
-			best_err = meas > std ? meas - std : std - meas;
-			best = i;
-		}
-	}
-	if (best >= 0 && best_err * tol <= div_u64((u64)standard[best].numerator * NSEC_PER_SEC,
-						    standard[best].denominator)) {
-		*tpf = standard[best];
+	i = hws_snap_interval(meas, tol);
+	if (i >= 0) {
+		tpf->numerator = hws_std_intervals[i][0];
+		tpf->denominator = hws_std_intervals[i][1];
 	} else {
 		tpf->numerator = (u32)div_u64(meas, 1000);	/* microseconds */
 		tpf->denominator = 1000000;
@@ -6135,7 +4753,7 @@ static int hws_resume(struct device *d)
 	pdx->m_bStartRun = 0;
 	InitVideoSys(pdx, 0);
 	for (i = 0; i < pdx->m_nCurreMaxVideoChl; i++) {
-		pdx->m_FrameEndNs[i] = 0;	/* restart the frame-rate window */
+		pdx->m_RateWin[i].frame_end = 0;	/* restart the frame-rate window */
 		if (pdx->m_ResumeVideo[i]) {
 			pdx->m_bVCapStarted[i] = 0;
 			StartVideoCapture(pdx, i);
@@ -6178,4 +4796,4 @@ module_exit(pcie_hws_exit);
 MODULE_DESCRIPTION("HWS driver");
 MODULE_AUTHOR("Alex Liu <alex.liu@longtimetech.com>");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("1.0");
+MODULE_VERSION(HWS_VERSION);	/* PACKAGE_VERSION in dkms.conf, see src/Makefile */

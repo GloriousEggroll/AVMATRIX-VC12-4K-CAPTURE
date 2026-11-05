@@ -56,7 +56,8 @@
 #include <linux/kfifo.h>
 #include <linux/debugfs.h>
 #include <linux/kref.h>
-#include <linux/freezer.h>   
+#include <linux/freezer.h>
+#include "hws_calc.h"
 
 
 //---------------------------------------------
@@ -263,8 +264,6 @@ struct hws_half_event {
 
 
 /* buffer for one video frame */
-/* zero-copy buffers end this far past the frame: an over-long last quarter run ends within a quarter + 2 KiB (register 9) */
-#define HWS_ZC_SLACK	8192
 
 struct hwsvideo_buffer {
 	/* common v4l buffer stuff -- must be first */
@@ -479,13 +478,10 @@ struct hws_pcie_dev {
 	u32		m_dwAudioBufferHigh[MAX_VID_CHANNELS];
 	uint8_t m_bVCapStarted[MAX_VID_CHANNELS];
 	uint8_t	 m_bACapStarted[MAX_VID_CHANNELS];
-	u64       m_FrameEndNs[MAX_VID_CHANNELS];	/* set by irqhandler at the frame-end half */
 	u32       m_FrameSeq[MAX_VID_CHANNELS];	/* next frame number, under video->cap_lock */
 	u32       m_FramesDropped[MAX_VID_CHANNELS];	/* captured frames lost: a half missing or stale */
 	/* input frame rate, measured from frame-end interrupts over ~1 s windows */
-	u64       m_RateWinStartNs[MAX_VID_CHANNELS];
-	u32       m_RateWinFrames[MAX_VID_CHANNELS];
-	u64       m_RateMinDeltaNs[MAX_VID_CHANNELS];	/* shortest frame interval in the window */
+	struct hws_rate_win m_RateWin[MAX_VID_CHANNELS];	/* fed at the frame-end half */
 	u64       m_FrameIntervalNs[MAX_VID_CHANNELS];	/* last measured, 0 = unknown */
 	u64       m_RateUpdatedNs[MAX_VID_CHANNELS];	/* when m_FrameIntervalNs was last written */
 	struct kref ref;	/* see hws_dev_release() */

@@ -37,6 +37,8 @@ runs=(
 for r in "${runs[@]}"; do
     read -r name w h nbuf count <<<"$r"
     echo "### $name ($w x $h, $nbuf MMAP buffers, $count frames)"
+    # framecheck reads the log only after stdin closes, when v4l2-ctl has exited
+    # shellcheck disable=SC2094
     v4l2-ctl -d "$DEV" --set-fmt-video=width="$w",height="$h",pixelformat=YUYV \
         --stream-mmap="$nbuf" --stream-count="$count" --stream-to=- --verbose 2>"$LOG" \
       | python3 -I "$HERE/framecheck.py" - "$LOG" $((w * h * 2))

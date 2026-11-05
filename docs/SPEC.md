@@ -296,7 +296,7 @@ These items come after 6.1, and 6.8 needs 6.9.
 
 ## Stage 7: public release
 
-**Status (2026-10-19): planned.** Stage 7 covers what a user outside the development machine needs. It changes scripts, docs, the build files and CI. Under `src/` it changes only `src/Makefile`. Item 7.8 is the release itself and comes last.
+**Status (2026-10-20): 7.1 and 7.4 to 7.7 done on `release/packaging`, which is pushed; 7.2 waits on an independent reader; 7.8 tags 1.1.0.** Stage 7 covers what a user outside the development machine needs. It changes scripts, docs, the build files and CI. Under `src/` it was meant to change only `src/Makefile`; 7.5 also moved the scalers and the pure calculations into their own files so tests can build them, and its tests found a scaler bug that was fixed there (see `results.md`). Item 7.8 is the release itself and comes last.
 
 | # | Change |
 |---|---|
@@ -320,18 +320,32 @@ These items come after 6.1, and 6.8 needs 6.9.
 
 ## Upstream PR series
 
-**Status (2026-10-19): planned.** Upstream gets the fork's work as small PRs, so its maintainer can review it in pieces and stop after any PR. Nothing is opened until the operator asks (4.7). PR numbers here are plan numbers, not GitHub numbers.
+**Status (2026-10-20): seven PRs, branches pushed to the fork, not yet opened.** The operator chose seven PRs over the 31 planned before. Upstream merges rarely (every few months), and 25 of the 31 formed one chain that could only merge one at a time, so seven PRs that stack in order replace them.
 
 ### How the PRs are built
 
-- **Rebuilt, not pushed as is.** Each PR has its own branch, `pr/NN-<topic>`, cut from the previous PR's branch, or from upstream `main` for a PR that stands alone. Its commits are cherry-picked from the stage branches, which stay as they are.
-- **Fix-ups are folded in.** A fork commit that fixes an earlier commit in the same PR is squashed into it, so a reviewer never reads a bug and then its fix. A stage 6 fix for a defect that a fork commit introduced is squashed into that commit too. A stage 6 fix for a defect that upstream `main` already had stays a commit of its own, in the PR the table names.
-- **Size.** Each PR has one topic, at most five commits, and at most about 400 changed lines, not counting deleted lines. PR-14 and PR-22 are larger, because each is a single design change. Their descriptions explain them part by part.
-- **Every commit builds** on every kernel in the CI matrix (7.4). Until 7.4 exists, every commit builds on every installed kernel with `tests/build-all-kernels.sh`. If a cherry-pick conflicts, resolve it by hand and build again.
-- **Every PR's tip runs on the card** before the PR opens. Install it as its own DKMS version with `tools/dkms-install.sh`, then reboot. Run a 300-frame `v4l2-ctl` stream through `framecheck.py` and 10 seconds of `arecord`, then the PR's own checks. Upstream may merge a PR and stop there, so every tip has to work on its own.
-- **Only `src/` changes go into the driver PRs.** A source commit that also added a file elsewhere loses that part: `2d8e283` added `tests/quarter_sizes.py`, and `1f3e39a` added `tests/staleaudio.py` and changed `docs/SPEC.md`. Test files go to PR-29.
-- **The fork's docs stay on the fork.** `docs/` holds this spec, the results, the register map and the audit, and none of it goes into a PR. A description can link to these files on the fork for detail, but it must make sense without them.
-- **Commit messages for upstream.** Remove references that only make sense on the fork: spec item numbers, probe numbers, `results.md` and stage names. Keep what changed, why, and how it was tested. Keep the `Co-Authored-By` trailers.
+- **Cut along the tested history.** Each PR is one or two of the fork's stage branches, unchanged, so the tree at the end of every PR is a tree that ran on the card. If upstream stops after any PR, it has a tested driver. The earlier plan folded stage 6 fixes into the PRs whose code they fix; that would have produced intermediate trees that never ran, so the fixes stay in PR 6.
+- **One commit left out:** `7c64b98` turned zero-copy on by default, and only PR 6 turned it off again. Without it, a tree that stops at PR 5 keeps zero-copy off. PRs 6 and 7 were restacked on the corrected PR 5; the one conflict (the parameter description) resolves to PR 6's text, and the final tree is unchanged.
+- **No build output.** Stages 6 and 7 committed kernel build output and a `.pyc` by mistake. The PR branches `upstream/6-audit-fixes` and `upstream/7-packaging` are copies with those files filtered out of every commit; their final tree equals the `v1.1.0` release. The fork's own branches keep their history.
+- **Docs go with the code.** The commits reference `docs/SPEC.md`, `docs/results.md` and `docs/AUDIT.md`, so those files ride along and the references resolve. Upstream may ask to drop them; they hold no code.
+- **Built at every tip:** each PR branch builds on kernel 7.2.11 and on Ubuntu 24.04's 6.8 (`tools/ci-build.sh`), checked 2026-10-20. PR 7 adds CI for nine distributions.
+- **Base:** upstream `main` at `bd17e06`, unchanged since 2026-06-29.
+
+### Merge order
+
+The PRs stack: each branch contains every commit of the ones before it. Upstream must merge them in order, 1 to 7. Until a PR's predecessors merge, GitHub shows their commits in its diff too; each description lists the commits that are its own. Once a predecessor merges with a merge commit (upstream's habit), its commits drop out of the next PR's diff by themselves. If upstream squashes or rebases a PR instead, the next branch needs a rebase onto the new `main`, which the fork does on request.
+
+| PR | Branch | Topic | Commits | Changed (vs. previous) | Merge after |
+|---|---|---|---|---|---|
+| 1 | `upstream/1-audio-batch` | Audio reported as BATCH, periods in whole packets | 1 | 1 file, +25 −4 | upstream `main` (stands alone) |
+| 2 | `upstream/2-frame-delivery` | Frame delivery: no deadlock, one frame per program, timestamps, teardown, DMA sizing (stage 1) | 13 | 7 files, +887 −568 | PR 1 |
+| 3 | `upstream/3-input-status` | Input information: DV timings, measured rate, native size, frame intervals, controls, suspend/resume (stage 2) | 23 | 8 files, +960 −777 | PR 2 |
+| 4 | `upstream/4-capture-rework` | Threaded-IRQ capture into app buffers, HDCP, register 9, silence fill, high refresh rates (stages 3 and 4) | 36 | 10 files, +1496 −1036 | PR 3 |
+| 5 | `upstream/5-zero-copy` | Zero-copy, off by default (stage 4.4) | 7 | 8 files, +717 −34 | PR 4 |
+| 6 | `upstream/6-audit-fixes` | Fixes from the release audit, dead code removal (stage 6) | 65 | 11 files, +1506 −772 | PR 5 |
+| 7 | `upstream/7-packaging` | Installer, CI, unit tests, README, changelog (stage 7) | 22 | 34 files, +2894 −2636 | PR 6 |
+
+PR 1 is small and stands alone, a first merge that shows the series works. PR 5 is optional: upstream can decline zero-copy, but PRs 6 and 7 contain fixes to it, so declining 5 means rebasing 6 and 7 without it. Open upstream PRs to mention: #23 (kubax, duplicate frames), which PR 2 supersedes and credits, and #25 (`.deb` packaging), which touches the install area PR 7 rewrites.
 
 ### Writing the PR description
 
@@ -345,77 +359,9 @@ The operator writes each description, short and in their own words. Reviewers di
 
 Before a PR opens, walk through its diff hunk by hunk until you can explain each hunk without notes. If you can't explain a hunk, resolve it first: simplify it, explain it in a code comment, or drop it. Each PR's bead lists the review questions to expect.
 
-### The series
+### Opening them
 
-The order follows the development history, so the cherry-picks apply with few conflicts. A PR depends on the one before it unless the last column says it stands alone. Hashes are fork commits. "+ 6.n" marks a stage 6 fix, folded in by the rules above. Sizes are the sum of `git show -w --shortstat -- src` over the fork commits before squashing. "New" means code that stage 6 or 7 hasn't written yet.
-
-**Series 1: fixes upstream can take on their own**
-
-| PR | Topic | Fork commits | Added / removed | Order |
-|---|---|---|---|---|
-| PR-01 | Audio: report the pointer as coarse (BATCH), with periods in whole packets | `f40a4d5` | 25 / 4 | stands alone |
-| PR-02 | The status thread sleeps idle; frame-queue buffers come from `kvzalloc` | `890ff94`, `a319e19` | 48 / 268 | stands alone |
-| PR-03 | DMA buffers sized for 4096×2160; an oversized quarter is never programmed | `2d8e283` | 88 / 23 | after PR-02 |
-| PR-04 | Per-queue locking, so a blocking DQBUF can't hang other ioctls | `23392ec` | 151 / 58 | after PR-03 |
-| PR-05 | Refuse format changes while buffers exist; count a handle closed only after its queue is gone | `49080f5`, `182c304` | 42 / 9 | after PR-04 |
-| PR-06 | One frame per consumer, timestamps at frame end, and stop waits for in-flight buffers | `8f5cb58`, `68f0c92`, `7cc4188` | 193 / 188 | after PR-05 |
-| PR-07 | Unique `bus_info`, the correct 720×576 entry, and no `read()` stub | `c89526e` | 5 / 12 | after PR-06 |
-
-**Series 2: input status**
-
-| PR | Topic | Fork commits | Added / removed | Order |
-|---|---|---|---|---|
-| PR-08 | Measure the input frame rate and report it in `G_PARM` | `00f59a5` + `f3da7f7` | 87 / 7 | after PR-07 |
-| PR-09 | Picture controls through the control framework, applied in hardware, without hue | `ec373f1` + `1a794ea` | 71 / 527 | after PR-08 |
-| PR-10 | Offer the input's native size, and follow it while idle | `a9ef468` | 117 / 125 | after PR-09 |
-| PR-11 | Frame intervals from the input rate; per-consumer `S_PARM` | `c466a2f` | 70 / 81 | after PR-10 |
-| PR-12 | DV timings, signal status, source-change events, `log_status` and the power-present control | `5af2e2b` + `9f6cab6` + `4a87a38`, `b8cb4e6`, `ddc7606` | 264 / 45 | after PR-11 |
-| PR-13 | Suspend and resume | `483648e` + 6.3 (SUSPEND and resume), 6.7 (freezable thread), 6.9 | 62 / 0, plus new | after PR-12 |
-
-**Series 3: capture rework**
-
-| PR | Topic | Fork commits | Added / removed | Order |
-|---|---|---|---|---|
-| PR-14 | A threaded IRQ copies each half straight into app buffers; the frame queue goes | `cae50c6` | 318 / 734 | after PR-13 |
-| PR-15 | Probe and remove: ordering, error paths, interrupt flags, unregister first, free on the last close | `5bd61fb`, 6.4, 6.5, 6.6 | 107 / 231, plus new | after PR-14 |
-| PR-16 | debugfs status; the canary and register snapshots behind `debug_dma` | `fa5b301`, `8a67155` + `df0a168` + 6.10, `bf69f64` | 309 / 10 | after PR-15 |
-| PR-17 | No DMA run past a buffer: lengths before start, register 9 and the start pause; no re-init from the PCM trigger | `7df0340`, `a3fe62e`, 6.2, `46f7ec9` | 60 / 13, plus new | after PR-16 |
-
-**Series 4: hardware status and audio**
-
-| PR | Topic | Fork commits | Added / removed | Order |
-|---|---|---|---|---|
-| PR-18 | The card's frame rate while idle (register 110); poll every 50 ms | `479286e`, `2ef336a` | 48 / 14 | after PR-17 |
-| PR-19 | Black frames while the source uses HDCP | `12e91c5` + 6.7 (0xFFFFFFFF part) | 42 / 3 | after PR-18 |
-| PR-20 | Report full-range Rec. 709 | `96dd3f1` | 8 / 0 | after PR-19 |
-| PR-21 | Audio: silence while the card sends none; never write a stopped stream's buffer | `1f3e39a`, 6.3 (work guards) | 88 / 0, plus new | after PR-20 |
-
-**Series 5: zero-copy**
-
-| PR | Topic | Fork commits | Added / removed | Order |
-|---|---|---|---|---|
-| PR-22 | Zero-copy into an app's buffers, off by default | `821f2d1` + 6.1 + 6.8 + 6.11. `7c64b98` is left out. | 380 / 16, plus new | after PR-21 |
-
-**Series 6: hardening and cleanup**
-
-| PR | Topic | Fork commits | Added / removed | Order |
-|---|---|---|---|---|
-| PR-23 | PCI: leave Relaxed Ordering to the core, no sync calls on coherent memory, acknowledge every interrupt bit, flag untested IDs | 6.12, 6.13, 6.14 | new | after PR-22 |
-| PR-24 | Fail a frame whose half was overwritten during the copy | 6.15 | new | after PR-23 |
-| PR-25 | Remove dead code | 6.18 | new | after PR-24 |
-
-**Series 7: packaging and tests**
-
-| PR | Topic | Fork commits | Added / removed | Order |
-|---|---|---|---|---|
-| PR-26 | One install and uninstall path through DKMS; a `.gitignore` | 7.1, 7.7 (`.gitignore`) | new | stands alone |
-| PR-27 | CI build matrix; `ccflags-y` in the Makefile | 7.4, 7.7 (Makefile) | new | stands alone |
-| PR-28 | Unit tests without the card | 7.5 | new | after PR-25 |
-| PR-29 | Test scripts: `framecheck.py`, `run-baseline.sh`, `build-all-kernels.sh`, `zctest.sh`, `quarter_sizes.py` and `staleaudio.py`. Optional: ask upstream first. | `7243fdf`, `8c7644d`, `8def62a`, `7864119`, the test files of `2d8e283` and `1f3e39a`, and 7.6 | tests only | after PR-22 |
-| PR-30 | The README as a user guide | 7.2 | new | after PR-25, PR-26 and PR-27 |
-| PR-31 | `tools/irq-affinity`, the opt-in IRQ placement helper. Optional: ask upstream first. | `f1df86b` | tools only | stands alone |
-
-**Opening the PRs.** Open one series at a time. Within a series, open each PR when the one before it merges, or open the next one marked "depends on" the previous. After a merge, rebase the remaining PR branches onto upstream `main`. When a reviewer asks for a change, make it on that PR's branch, then rebase the PR branches after it. PR-06 supersedes upstream PR #23, so comment on #23 and credit its author before PR-06 opens.
+The fork can't open PRs on upstream; the operator opens each from the fork's branch on GitHub (the compare links are in the PR briefs, kept outside the repository). Open PR 1 for review. Open PRs 2 to 7 at the same time as drafts, or one at a time after the previous one merges; either way, each description states what it depends on.
 
 ## Host integration
 

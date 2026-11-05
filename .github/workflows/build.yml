@@ -1,0 +1,62 @@
+# Stage 7.4: build the module against several distributions' kernel
+# headers, and run the checks that need no card. tools/ci-build.sh does the
+# build; run it locally the same way:
+#   podman run --rm -v "$PWD:/src:Z" -w /src <image> tools/ci-build.sh
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  module:
+    name: module (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Fedora,           image: "registry.fedoraproject.org/fedora:latest" }
+          - { name: Arch,             image: "docker.io/library/archlinux:latest" }
+          - { name: Ubuntu 24.04,     image: "docker.io/library/ubuntu:24.04" }
+          - { name: Ubuntu 22.04,     image: "docker.io/library/ubuntu:22.04" }
+          - { name: Debian 12,        image: "docker.io/library/debian:12" }
+          - { name: CentOS Stream 9,  image: "quay.io/centos/centos:stream9" }
+          - { name: CentOS Stream 10, image: "quay.io/centos/centos:stream10" }
+          - { name: AlmaLinux 9,      image: "quay.io/almalinuxorg/almalinux:9" }
+          - { name: AlmaLinux 10,     image: "quay.io/almalinuxorg/almalinux:10" }
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/ci-build.sh
+      # style report only; never fails the build
+      - name: checkpatch (report)
+        if: matrix.name == 'Fedora'
+        continue-on-error: true
+        run: |
+          kdir=$(ls -d /usr/src/kernels/*/ | sort -V | tail -1)
+          perl "$kdir/scripts/checkpatch.pl" --no-tree --terse --show-types -f \
+            src/hws_video.c src/hws_scale.c src/hws.h src/hws_calc.h src/hws_scale.h \
+            | tail -n 40 || true
+
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get -qq update && sudo apt-get -qq install -y shellcheck clang
+      # play/ holds the vendor's demo scripts, which don't pass shellcheck
+      - name: shellcheck
+        run: |
+          git ls-files '*.sh' tools/irq-affinity \
+            | grep -v '^play/' \
+            | xargs shellcheck
+      - name: Python checks that need no card
+        run: |
+          python3 -m py_compile tests/*.py
+          python3 -I tests/quarter_sizes.py
+      - name: unit tests (ASan, UBSan)
+        run: make -C tests/unit check CC=clang

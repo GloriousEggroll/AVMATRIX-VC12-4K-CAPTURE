@@ -8,7 +8,11 @@
 # zero-copy failures, audio gaps the driver filled with silence, OBS's resident memory, available system memory, and
 # the IO_PAGE_FAULT, stray-write and PipeWire error counts since the start.
 set -uo pipefail
-BDF=${BDF:-0000:0b:00.0}
+# the card bound to the driver (7.6); BDF=... picks one when there are several
+cards=(/sys/bus/pci/drivers/HwsUHDX1Capture/0000:*)
+[ -e "${cards[0]}" ] || { echo "no device is bound to HwsUHDX1Capture"; exit 1; }
+BDF=${BDF:-$(basename "${cards[0]}")}
+[ -e "/sys/bus/pci/drivers/HwsUHDX1Capture/$BDF" ] || { echo "$BDF isn't bound to HwsUHDX1Capture"; exit 1; }
 DBG=/sys/kernel/debug/hws-$BDF
 hours=${1:-8} every=${2:-30}
 st() { sudo -n cat "$DBG/status"; }

@@ -5,7 +5,11 @@
 # Ends with zero_copy back to what it was.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-BDF=${BDF:-0000:0b:00.0}
+# the card bound to the driver (7.6); BDF=... picks one when there are several
+cards=(/sys/bus/pci/drivers/HwsUHDX1Capture/0000:*)
+[ -e "${cards[0]}" ] || { echo "no device is bound to HwsUHDX1Capture"; exit 1; }
+BDF=${BDF:-$(basename "${cards[0]}")}
+[ -e "/sys/bus/pci/drivers/HwsUHDX1Capture/$BDF" ] || { echo "$BDF isn't bound to HwsUHDX1Capture"; exit 1; }
 DEV=${DEV:-/dev/video0}
 N=${N:-600}
 DBG=/sys/kernel/debug/hws-$BDF

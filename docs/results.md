@@ -762,3 +762,118 @@ The window count stood at 232 before `zctest.sh` began: `v4l2-compliance -s` run
 ### Build output in the branch, and a stale DKMS module
 
 `7784170` staged `src/` with `git add -A` and so committed the kbuild output of a local build (`.o`, `.ko`, `.cmd`, `.mod.c`); `aeafbaa` and `6432897` updated it. Upstream tracks none of these. `tools/dkms-install.sh` packed all of `src/` from git, so the objects reached DKMS, and for DKMS `1.0.0.230324.6.8` kbuild reused the committed `hws_video.o` on 7.2.10 instead of compiling: that module held the code from `6432897` (it still had the removed queue code; srcversion `FBA939D1AAC60E8C53BE29D`, unlike the other kernels). Earlier installs weren't affected in practice, since the committed objects matched their commit's source (6.7 had the same srcversion on every kernel). `b5c3a3d` removes the build output from the index and makes the installer take only `Makefile`, `dkms.conf` and the three source files. 6.8 was removed from DKMS and 6.9 installed; all its modules have the same srcversion and none has the removed code. When the series is split into PRs, those three commits must leave out their `src/` build output.
+
+## Stage 7: build hygiene, probe-tool checks, unit tests (7.5–7.7)
+
+On branch `release/packaging` (from `fix/release-audit`), kernel 7.2.11.
+
+- **7.7 (`d763565`, `51591a2`):** `.gitignore` for kbuild output, `hws_install.log`, `__pycache__` and the unit-test binaries; `src/Makefile` uses `ccflags-y` (kbuild hasn't read `EXTRA_CFLAGS`/`EXTRA_LDFLAGS` for a long time; the compiled `hws_video.o` is byte-for-byte the same); `src/load.sh` removed; a `.pyc` committed by mistake untracked. After a build and a test run `git status` is clean.
+- **7.6 (`bec1b0d`):** `tests/regprobe.py` requires `--pci` and refuses, before opening `resource0`, anything but an 8888:8581 bound to `HwsUHDX1Capture`. Run without root, so a missed check would show as a permission error: the GPU's address (0x1002:0x7550), a missing device and a malformed address were refused; the card's address reached the open. The shell tests find the card under the driver's sysfs directory.
+- **7.5 (`f4cdc78`, `df257a7`, `d37885a`, `6388717`):** the scalers moved unchanged to `src/hws_scale.c` and the pure calculations to `src/hws_calc.h`; `make -C tests/unit check` builds them in userspace under ASan and UBSan (clang with compiler-rt; GCC needs `libasan` and `libubsan`, not installed here). It takes about 3 s.
+
+| Test | Result |
+|---|---|
+| Quarter sizes, every even input size to 4096×2160 | pass; 4K 4,147,200 / 4,149,248 and 1080p 1,036,288 / 1,040,384 bytes, as read on the card |
+| Zero-copy slack | worst case 4096 bytes (2×512); `HWS_ZC_SLACK` 8192 passes; rebuilt with 4095 it fails, as required |
+| Rate snapping, rate window, preset choice, counter wraparound | pass |
+| `VideoScaler()`, 340 input/output pairs | pass after the fix below |
+
+**Two findings in the vendor's scalers:**
+1. `UHDW_To_2560X1440_Scaler()` (4096×2160 → 2560×1440) reads 16 source bytes per 6 output pixels: each row reads 10,240 bytes of an 8,192-byte row, and the last row reads past the frame. In the driver the source is a `vmalloc()` buffer of exactly one 4096×2160 frame (a whole number of pages), so the read would hit the guard page and oops. This card scales 4096-wide sources to 3840, so it can't happen here; other cards are untested. Fixed in `d37885a`: that pair goes to the general scaler, and the function is removed.
+2. Several fixed-size scalers (first `FHD_To_HD_Scaler()`) load pixels through `int *` at odd byte offsets: undefined behaviour in C, harmless on x86-64, a fault on CPUs that trap misaligned loads. Not changed; the unit tests build `hws_scale.c` with UBSan's alignment check off. x86-64 stays the only tested architecture.
+
+**On the card** (DKMS `1.0.0.230324.7.0`, srcversion `C334345BE2C7FC8E110FBD2`, the PC's GPU at 3840×2160p60, no mode changes): `G_PARM` 60/1 idle and while capturing (measured 16,666,974 ns); DV timings the CTA-861 preset, VIC 97; a 1920×1080 capture from the 4K input (scaled) 60.00 fps, no gaps; `tests/zctest.sh` all cases 60.00 fps, zero-copy 0 failed, 0 outside the window; `v4l2-compliance -s` 58 of 59 (the by-design `reqbufs != EBUSY`); no `IO_PAGE_FAULT`, WARNING or BUG.
+
+## 7.4: build matrix
+
+`tools/ci-build.sh` in each distribution's container, under podman on this machine, at `92be2d1`; `.github/workflows/build.yml` runs the same script on GitHub once pushed. Each build installs the distribution's kernel headers and builds with W=1 against that directory.
+
+| Distribution | Kernel headers | Result | W=1 warnings |
+|---|---|---|---|
+| Fedora 44 | 7.2.11-200.fc44 | pass | 24 |
+| Arch Linux | 7.2.11-arch1-1 | pass | 23 |
+| Ubuntu 24.04.5 LTS | 6.8.12 (6.8.0-147-generic) | pass | 24 |
+| Ubuntu 22.04.5 LTS | 5.15.216 (5.15.0-198-generic) | pass | 22 |
+| Debian 12 | 6.1.190 (6.1.0-54-amd64) | pass | 22 |
+| CentOS Stream 9 (RHEL 9.10) | 5.14.0-758.el9 | pass | 22 |
+| AlmaLinux 9.8 | 5.14.0-687.58.1.el9_8 | pass | 22 |
+| CentOS Stream 10 (RHEL 10.4) | 6.12.0-277.el10 | pass | 25 |
+| AlmaLinux 10.2 | 6.12.0-211.66.1.el10_2 | pass | 23 |
+
+What it took (`481b333`):
+- RHEL backports the 6.18 `v4l2_fh_add(fh, file)` (9.10, 10.2) and the 7.0 removal of `vb2_ops.wait_prepare` (9.10, 10.4), so `LINUX_VERSION_CODE` checks picked the wrong side. `src/Makefile` now greps the headers being built against and sets `HWS_FH_TAKES_FILE` and `HWS_VB2_NO_WAIT_PREPARE`.
+- `snd_dma_continuous_data()`, a macro until 5.19, is also gone from RHEL 9.10; the code tests the macro itself.
+- RHEL 9 builds no `videobuf2-dma-contig`. Zero-copy is its only user; without it the driver reports zero-copy as unavailable ("kernel built without videobuf2-dma-contig") and uses the copy path.
+- Ubuntu 24.04 and Debian 12 first failed in the container setup, not the code: W=1 runs `kernel-doc`, which needs perl's `Pod::Usage`; the script installs `perl`.
+
+The oldest kernel built is 5.14 (RHEL 9) and the oldest mainline-based one 5.15 (Ubuntu 22.04). Building is all this shows: the module has run only on Fedora/Nobara 7.2.x.
+
+The workflow's checks job: shellcheck on every script except `scripts/` (legacy installers, replaced in 7.1) and `play/` (vendor demos), `tests/quarter_sizes.py`, and `make -C tests/unit check` with clang; all pass locally. Checkpatch runs in the Fedora job as a report only (on `hws_video.c`, mostly the vendor's style).
+
+On the card, DKMS `1.0.0.230324.7.1` (srcversion `6A2BEE5356209BF3DF394FF`, both header flags set on 7.2.11, so the same code paths as before): `tests/zctest.sh` all cases clean, zero-copy 0 failed; `v4l2-compliance -s` 58 of 59; a 2 s recording got 98 audio packets with no gaps (the source was sending silence).
+
+## 7.1: install and uninstall
+
+`install.sh` and `uninstall.sh` at `30a4e8d` and `1bd7274`, release version 1.1.0, each run from a copy of the repository at `/tmp/a b/`.
+
+**This machine (Nobara 44, 7.2.11), over the development installs:** `uninstall.sh` removed 20 DKMS versions of the package, 24 entries under `/usr/src` (including the old `HwsUHDX1Capture.ko-1.0.0.230324` link), `/usr/local/share/HWS` and the `/usr/bin/hws-repair.sh` and `hws-uninstall.sh` links, kept `/etc/modprobe.d/hws.conf`, and asked for a reboot since the driver was loaded. `install.sh` then built 1.1.0 for the three kernels with headers (7.2.9, 7.2.10, 7.2.11) and skipped the three without. Reinstalling over 1.1.0 works. The first run registered the package under the distribution's name: `. /etc/os-release` sets `NAME`, which the script also used; fixed before the commit by reading os-release in a subshell. After a reboot the driver ran as 1.1.0 (`/sys/module/HwsUHDX1Capture/version`, srcversion `13D35CEC3E2E66A94FD3259`, kernel 7.2.11), and the operator confirmed video and audio in OBS.
+
+**VMs** (QEMU/KVM, cloud images, checksums verified; no capture card, so these test the packaging, not capture):
+
+| | Fedora 44 Cloud | Ubuntu 24.04.5 Cloud | Arch Linux Cloud |
+|---|---|---|---|
+| `install.sh` with no packages | stops: `sudo dnf install dkms gcc make kernel-devel-6.19.10-300.fc44.x86_64` | stops: `sudo apt install dkms gcc make linux-headers-6.8.0-147-generic` | stops: the pacman command |
+| That command, as printed | works (the repo still had 6.19.10 headers; dkms also pulled in 7.2.11) | works | fails: an unsynced database, and only the newest kernel's headers exist. Now: `pacman -Syu …`, then reboot if the kernel changed (7.2.9 → 7.2.11) |
+| `install.sh` | 1.1.0 for 6.19.10 and 7.2.11 | 1.1.0 for 6.8.0-147 | 1.1.0 for 7.2.11, loaded |
+| Loading | failed: no `videodev`, `videobuf2-*` or `snd-pcm` in the cloud kernel; `kernel-modules` fixed it | failed: no `videodev`, `videobuf2-*`; `linux-modules-extra-$(uname -r)` fixed it | loaded |
+| After a reboot | `modinfo`: 1.1.0 (booted 7.2.11) | 1.1.0 | 1.1.0 |
+| `uninstall.sh` | `modinfo` fails, `dkms status` empty, none of the 7.1 paths left, no module files | the same | the same; a second run is harmless |
+| Files written in `/tmp/a b/` | none | none | none |
+
+`install.sh` now names those missing modules and the package that has them (checked on Ubuntu by removing `linux-modules-extra` and running it again). The top-level `dkms-install.sh` goes through `install.sh`. Secure Boot was off in every VM and here, so the MOK message wasn't exercised.
+
+### 7.1 with Secure Boot on
+
+QEMU/KVM with OVMF's Secure Boot firmware and Microsoft keys (`OVMF_CODE.secboot.fd`, `OVMF_VARS.secboot.fd`); MokManager driven through the QEMU monitor (screenshots and key presses). The Arch cloud image has no signed boot chain, so it can't boot with Secure Boot on and isn't covered.
+
+| | Fedora 44 Cloud | Ubuntu 24.04.5 Cloud |
+|---|---|---|
+| `mokutil --sb-state` | SecureBoot enabled | SecureBoot enabled |
+| DKMS signing key | `/var/lib/dkms/mok.pub` (DKMS's own) | `/var/lib/shim-signed/mok/MOK.der` (shim-signed) |
+| `install.sh` | printed the `mokutil --import` steps | first run hung: DKMS's debconf password prompt was hidden by `>/dev/null`. Fixed in `046c117`: output shown, no prompt without a terminal |
+| Before enrolment | `modprobe`: "Key was rejected by service" | the same |
+| Ubuntu's own prompt | — | under a terminal, "Configuring Secure Boot" asked for the password twice and queued the key; `install.sh` then said it was queued instead of asking for a second import |
+| MokManager | Enroll MOK → Continue → Yes → password → Reboot | the same |
+| After enrolment | loaded, `signer` "DKMS module signing key", taint 4096 (out-of-tree only) | loaded, `signer` "sbubuntu Secure Boot Module Signature key", taint 4096 |
+| `install.sh` again | — | no Secure Boot message; loaded |
+
+- **MokManager's timeout:** shim shows "Press any key to perform MOK management" for 10 seconds. Twice the countdown ran out (once on each distribution), and each time the request was dropped (`mokutil --list-new` empty) and the VM booted normally; a second `mokutil --import` and reboot worked. The instructions now say to press a key within 10 seconds and to import again if it times out.
+- On Fedora the module needs `kernel-modules` for whichever kernel boots: after the reboot into 7.2.11 it failed on missing `videodev` symbols until `kernel-modules-7.2.11` was installed (the same minimal-image gap as above, not Secure Boot).
+
+## 7.2: the README
+
+`README.md` rewritten as the user guide (`8f72159`, fixes in `eb6b4eb`). On this machine the check commands ran as written: `v4l2-ctl --list-devices` (HUHDVideo 1, `/dev/video0`), `arecord -l` (HUHDAudio 1), the `DMA buffers` kernel log line, `modinfo -F version` (1.1.0), `lspci -d 8888:`, and the GStreamer pipeline (60 frames at 3840×2160 into `fakesink`).
+
+**Fresh Ubuntu 24.04 VM, Secure Boot on, following the README word for word** (by the guide's author, so this checks the steps, not how clear they are to a newcomer):
+
+| Step | Result |
+|---|---|
+| 1. `sudo apt install dkms gcc make linux-headers-$(uname -r)` | worked |
+| 2. `git clone --branch release/packaging …`, `./install.sh` | Ubuntu's "Configuring Secure Boot" prompt appeared on the terminal and took a password; the installer said the key was queued, and that `videodev` and `videobuf2-vmalloc` were missing, naming `linux-modules-extra-6.8.0-147-generic` |
+| The named package, then 3. reboot and MokManager | Enroll MOK → Continue → Yes → password → Reboot; the key enrolled |
+| 4. the checks | **failed:** `v4l2-ctl` and `arecord` not installed; then `apt install v4l-utils` failed with "Unable to locate package" until `apt update` ran |
+| Driver | loaded with `modprobe` (no card in a VM, so nothing loads it at boot), signed by the VM's own key, version 1.1.0 |
+| Upgrade (`git pull`, `./uninstall.sh`, `./install.sh`) and uninstall | worked; `modinfo` fails afterwards and `dkms status` lists nothing |
+
+Fixed in `eb6b4eb`: step 4 installs `v4l-utils` and `alsa-utils` first; the Ubuntu and Debian command starts with `apt update`; step 4 says the driver loads at boot with the card fitted; and the installer's message for a reinstall of the loaded version no longer calls it "older".
+
+Still open for 7.2: someone who hasn't worked on the driver follows the README on a fresh machine.
+
+## 7.8: release 1.1.0
+
+Tag `v1.1.0` on `59b28c6` (`release/packaging`), pushed to the fork; `src/dkms.conf` has `PACKAGE_VERSION=1.1.0`.
+
+- **CI on the tagged commit:** GitHub Actions run 39461686659 passed: the module built for Fedora, Arch, Ubuntu 24.04 and 22.04, Debian 12, CentOS Stream 9 and 10, and AlmaLinux 9 and 10, and the checks job (shellcheck, the Python check, the unit tests) passed.
+- **Install in the 7.1 VMs** (fresh Fedora 44, Ubuntu 24.04 and Arch, packages as the README gives them, a `git archive` of the tagged tree): `install.sh` installed 1.1.0 on every kernel with headers; Arch loaded it, and on the Fedora and Ubuntu cloud images it named the missing kernel modules, as documented. `uninstall.sh` left no DKMS entry and no module. After the tag was pushed, the README's own command, `git clone --branch v1.1.0 …`, then `./install.sh`, worked on Arch.
+- `SECURITY.md` points at GitHub's private vulnerability reporting, which the operator enabled on the fork (the API reports `"enabled": true`).
+- The VMs and their images were deleted afterwards.
