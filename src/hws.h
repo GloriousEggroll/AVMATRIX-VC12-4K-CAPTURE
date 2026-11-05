@@ -110,8 +110,10 @@
 #define TRUE 1
 #define FALSE 0
 #endif 
-#define MEM_LOCK					1
-#define MEM_UNLOCK					0
+/* frame-queue slot states (VCAP_STATUS_INFO.byLock), changed under videoslock */
+#define MEM_LOCK					1	/* READY: a complete frame nobody has read */
+#define MEM_UNLOCK					0	/* FREE: the tasklet may write it */
+#define MEM_READING					2	/* the worker is copying from it */
 
 
 typedef unsigned int DWORD;
@@ -143,6 +145,12 @@ typedef unsigned char BOOL;
 #define AUDIO_ONE_QUEUE_SIZE		8*CUR_AUDIO_PACKET_LENGTH
 
 #define MAX_MM_VIDEO_SIZE			0x400000	//4M
+/*
+ * Each DMA buffer holds one quarter of a frame plus the audio ring at its end.
+ * A 4096x2160 quarter is 4,425,728 bytes, so 4 MiB only fits 3840x2160; 4.5 MiB
+ * fits both. Larger than MAX_PAGE_ORDER, so it needs IOMMU translation or CMA.
+ */
+#define MAX_MM_VIDEO_SIZE_DCI		0x480000	//4.5M
 
 #define MAX_VIDEO_HW_W 4096
 #define MAX_VIDEO_HW_H 2160
@@ -192,18 +200,16 @@ typedef struct TAG_VCAP_STATUS_INFO
 	DWORD       dwWidth; 
 	DWORD       dwHeight;
 	DWORD	    dwinterlace;
+	DWORD       dwSize[4];	/* bytes in each quarter buffer */
+	u64         tsNs;	/* CLOCK_MONOTONIC at the frame-end interrupt */
+	u32         seq;	/* per-channel frame number */
 }VCAP_STATUS_INFO, *PVCAP_STATUS_INFO;
 typedef struct 
 {
 	uint8_t		*m_pVideoBufData[MAX_VIDEO_QUEUE];
-	uint8_t     *m_pVideoData_area[MAX_VIDEO_QUEUE];
 	uint8_t		*m_pVideoBufData1[MAX_VIDEO_QUEUE];
-	uint8_t     *m_pVideoData_area1[MAX_VIDEO_QUEUE];
 	uint8_t		*m_pVideoBufData2[MAX_VIDEO_QUEUE];
-	uint8_t     *m_pVideoData_area2[MAX_VIDEO_QUEUE];
 	uint8_t		*m_pVideoBufData3[MAX_VIDEO_QUEUE];
-	uint8_t     *m_pVideoData_area3[MAX_VIDEO_QUEUE];
-	int         m_VideoBufferSize[4];
 	VCAP_STATUS_INFO pStatusInfo[MAX_VIDEO_QUEUE];
 	DWORD        m_nVideoIndex;
 	BYTE		*m_pVideoScalerBuf;
@@ -213,7 +219,6 @@ typedef struct
 typedef struct 
 {
 	uint8_t		*m_pAudioBufData[MAX_AUDIO_QUEUE];
-	uint8_t     *m_pAudioData_area[MAX_AUDIO_QUEUE];
 	ACAP_STATUS_INFO pStatusInfo[MAX_AUDIO_QUEUE];
 	DWORD           m_nAudioIndex;
 	DWORD		dwisRuning;
@@ -306,6 +311,8 @@ struct hws_vfh_ctx {
     spinlock_t          qlock;       /* protects buf_queue */
     struct mutex        qmutex;      /* vb2 q->lock on kernels >= 7.0 (wait_prepare/finish removed) */
     bool                streaming;
+    atomic_t            inflight;    /* buffers the worker popped but has not completed */
+    wait_queue_head_t   inflight_wq; /* stop_streaming waits here for inflight == 0 */
     struct hws_video   *video;
     struct list_head    node;        /* link into video->consumers */
 };
@@ -322,7 +329,8 @@ struct hws_video{
 	struct mutex			queue_lock;
 	/* B1: multi-consumer */
 	spinlock_t			consumers_lock;
-	struct mutex			ioctl_lock;
+	struct mutex			ioctl_lock;	/* non-buffer ioctls (shared format/state) */
+	struct mutex			engine_lock;	/* StartVideoCapture/StopVideoCapture */
 	struct list_head		consumers;
 	atomic_t			engine_users;
 	spinlock_t				slock;
@@ -405,6 +413,8 @@ struct hws_pcie_dev {
 	u32 m_Device_PortID;
 	//int  m_IsHDModel; // 0 SD 1. 720p 2 1080p 3 2K 4 4K
 	int  m_MaxHWVideoBufferSize;
+	int  m_MaxInputWidth;		/* 4096 with 4.5 MiB DMA buffers, else 3840 */
+	u32  m_UnsupportedRes;		/* last unsupported input (w<<16|h), warned once */
 	int m_nMaxChl;
 	int m_nCurreMaxVideoChl;
 	int m_nCurreMaxLineInChl;
@@ -446,6 +456,9 @@ struct hws_pcie_dev {
 	int       m_nRDVideoIndex[MAX_VID_CHANNELS];
 	int        m_nVideoBufferIndex[MAX_VID_CHANNELS];
 	int       m_nVideoHalfDone[MAX_VID_CHANNELS];
+	u64       m_FrameEndNs[MAX_VID_CHANNELS];	/* set by irqhandler at the frame-end half */
+	u32       m_FrameSeq[MAX_VID_CHANNELS];	/* next frame number, under videoslock */
+	u32       m_FramesDropped[MAX_VID_CHANNELS];	/* READY frames overwritten or skipped */
 	uint8_t	  m_dwAudioField[MAX_VID_CHANNELS];
 	uint8_t   m_nAudioBusy[MAX_VID_CHANNELS];
 	uint8_t   m_nAudioBufferIndex[MAX_VID_CHANNELS];

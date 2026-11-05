@@ -418,6 +418,28 @@ static int hws_vidioc_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_f
 	//----------------------------------
 	return 0;
 }
+/*
+ * All consumers share one output format, and the worker copies frames sized
+ * by it into every consumer's buffers. Changing it while any consumer holds
+ * buffers would make those copies overrun the smaller buffers.
+ */
+static bool hws_any_queue_busy(struct hws_video *videodev)
+{
+	struct hws_vfh_ctx *ctx;
+	unsigned long flags;
+	bool busy = false;
+
+	spin_lock_irqsave(&videodev->consumers_lock, flags);
+	list_for_each_entry(ctx, &videodev->consumers, node) {
+		if (vb2_is_busy(&ctx->vbq)) {
+			busy = true;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&videodev->consumers_lock, flags);
+	return busy;
+}
+
 static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,struct v4l2_format *f)
 {
 	struct hws_video *videodev = video_drvdata(file);
@@ -433,9 +455,11 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,struct v4l2_format
 	nVideoFmtIndex = v4l2_get_suport_VideoFormatIndex(f);
 	if(nVideoFmtIndex ==-1) return -EINVAL;
 
-	err = hws_vidioc_try_fmt_vid_cap(file, priv, f);
-	if (0 != err)
-		return err;
+	if ((f->fmt.pix.width != videodev->current_out_width ||
+	     f->fmt.pix.height != videodev->curren_out_height ||
+	     f->fmt.pix.pixelformat != videodev->pixfmt) && hws_any_queue_busy(videodev))
+		return -EBUSY;
+
 	spin_lock_irqsave(&pdx->videoslock[videodev->index], flags);
 	videodev->current_out_size_index = nVideoFmtIndex;
 	videodev->pixfmt     = f->fmt.pix.pixelformat;
@@ -637,6 +661,8 @@ static int hws_open(struct file *file)
     spin_lock_init(&ctx->qlock);
     mutex_init(&ctx->qmutex);
     ctx->streaming = false;
+    atomic_set(&ctx->inflight, 0);
+    init_waitqueue_head(&ctx->inflight_wq);
 
     /* v4l2 file-handle */
     v4l2_fh_init(&ctx->fh, &videodev->vdev);
@@ -657,14 +683,14 @@ static int hws_open(struct file *file)
     q->buf_struct_size = sizeof(struct hwsvideo_buffer);
     q->ops = &hwspcie_video_multi_qops;
     q->mem_ops = &vb2_vmalloc_memops;
-    q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-    #if (LINUX_VERSION_CODE < KERNEL_VERSION(7,0,0))
-    q->lock = NULL; /* pre-7.0: serialized via wait_prepare/wait_finish ops */
-    #else
-    /* 7.0 removed wait_prepare/wait_finish; vb2 now requires q->lock. The queue
-     * is per-open (per ctx), so a per-ctx mutex serializes only this fh. */
+    q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC | V4L2_BUF_FLAG_TSTAMP_SRC_EOF;
+    /*
+     * Per-open lock for this queue only. vb2 releases it while a blocking
+     * DQBUF waits (via wait_prepare/wait_finish before 7.0, by itself since),
+     * which the pre-7.0 ops also need: they unlock q->lock and must not see
+     * NULL.
+     */
     q->lock = &ctx->qmutex;
-    #endif
     q->dev = &pdx->pdev->dev;
 
     ret = vb2_queue_init(q);
@@ -715,7 +741,9 @@ static int hws_release(struct file *file)
     spin_unlock_irqrestore(&videodev->consumers_lock, flags);
 
     /* release vb2 queue resources */
+    mutex_lock(&ctx->qmutex);
     vb2_queue_release(&ctx->vbq);
+    mutex_unlock(&ctx->qmutex);
 
     /* v4l2 fh cleanup */
 	#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0))
@@ -1335,74 +1363,158 @@ int hws_vidioc_s_parm(struct file *file, void *fh,struct v4l2_streamparm *a)
 	return 0;
 }
 
-/* --- B1 multi-consumer: per-file vb2_queue switching wrappers --- */
+/*
+ * Multi-consumer locking. Each open() owns a vb2 queue guarded by its own
+ * ctx->qmutex, which is also that queue's q->lock, so vb2 releases it while a
+ * blocking DQBUF waits. Buffer ioctls, poll and mmap touch only the caller's
+ * queue. Every other ioctl changes or reads state shared by all consumers and
+ * runs under videodev->ioctl_lock.
+ *
+ * This used to hold ioctl_lock across every ioctl while swapping vdev->queue to
+ * the caller's queue. A blocking DQBUF then kept the device lock while it
+ * waited, so every other ioctl on the device, including the one that would
+ * have woken it, blocked forever (v4l2-compliance hangs in its blocking-wait
+ * test).
+ */
+static bool hws_is_buffer_ioctl(unsigned int cmd)
+{
+	switch (cmd) {
+	case VIDIOC_REQBUFS:
+	case VIDIOC_CREATE_BUFS:
+	case VIDIOC_QUERYBUF:
+	case VIDIOC_PREPARE_BUF:
+	case VIDIOC_QBUF:
+	case VIDIOC_DQBUF:
+	case VIDIOC_STREAMON:
+	case VIDIOC_STREAMOFF:
+#ifdef VIDIOC_DQBUF_TIME32
+	case VIDIOC_QUERYBUF_TIME32:
+	case VIDIOC_QBUF_TIME32:
+	case VIDIOC_DQBUF_TIME32:
+	case VIDIOC_PREPARE_BUF_TIME32:
+#endif
+		return true;
+	}
+	return false;
+}
+
 static long hws_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-    struct v4l2_fh *fh = file->private_data;
-    struct hws_vfh_ctx *ctx;
-    struct hws_video *videodev;
-    struct vb2_queue *oldq;
-    long ret;
+	struct hws_vfh_ctx *ctx;
+	long ret;
 
-    if (!fh)
-        return -EINVAL;
-    ctx = container_of(fh, struct hws_vfh_ctx, fh);
-    videodev = ctx->video;
+	if (!file->private_data)
+		return -EINVAL;
+	if (hws_is_buffer_ioctl(cmd))
+		return video_ioctl2(file, cmd, arg);	/* takes ctx->qmutex itself */
 
-    mutex_lock(&videodev->ioctl_lock);
-    oldq = videodev->vdev.queue;
-    videodev->vdev.queue = &ctx->vbq;
-    ret = video_ioctl2(file, cmd, arg);
-    videodev->vdev.queue = oldq;
-    mutex_unlock(&videodev->ioctl_lock);
-
-    return ret;
+	ctx = hws_ctx_from_file(file);
+	mutex_lock(&ctx->video->ioctl_lock);
+	ret = video_ioctl2(file, cmd, arg);
+	mutex_unlock(&ctx->video->ioctl_lock);
+	return ret;
 }
 
 static __poll_t hws_poll(struct file *file, struct poll_table_struct *wait)
 {
-    struct v4l2_fh *fh = file->private_data;
-    struct hws_vfh_ctx *ctx;
-    struct hws_video *videodev;
-    struct vb2_queue *oldq;
-    __poll_t ret;
+	struct hws_vfh_ctx *ctx;
+	__poll_t ret;
 
-    if (!fh)
-        return EPOLLERR;
-    ctx = container_of(fh, struct hws_vfh_ctx, fh);
-    videodev = ctx->video;
-
-    mutex_lock(&videodev->ioctl_lock);
-    oldq = videodev->vdev.queue;
-    videodev->vdev.queue = &ctx->vbq;
-    ret = vb2_fop_poll(file, wait);
-    videodev->vdev.queue = oldq;
-    mutex_unlock(&videodev->ioctl_lock);
-
-    return ret;
+	if (!file->private_data)
+		return EPOLLERR;
+	ctx = hws_ctx_from_file(file);
+	mutex_lock(&ctx->qmutex);
+	ret = vb2_poll(&ctx->vbq, file, wait);
+	mutex_unlock(&ctx->qmutex);
+	return ret;
 }
 
 static int hws_mmap(struct file *file, struct vm_area_struct *vma)
 {
-    struct v4l2_fh *fh = file->private_data;
-    struct hws_vfh_ctx *ctx;
-    struct hws_video *videodev;
-    struct vb2_queue *oldq;
-    int ret;
+	if (!file->private_data)
+		return -EINVAL;
+	return vb2_mmap(&hws_ctx_from_file(file)->vbq, vma);
+}
 
-    if (!fh)
-        return -EINVAL;
-    ctx = container_of(fh, struct hws_vfh_ctx, fh);
-    videodev = ctx->video;
+/* buffer ioctls: the caller's own queue, under its own lock */
+static int hws_reqbufs(struct file *file, void *priv, struct v4l2_requestbuffers *p)
+{
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	int ret;
+	mutex_lock(&ctx->qmutex);
+	ret = vb2_reqbufs(&ctx->vbq, p);
+	mutex_unlock(&ctx->qmutex);
+	return ret;
+}
 
-    mutex_lock(&videodev->ioctl_lock);
-    oldq = videodev->vdev.queue;
-    videodev->vdev.queue = &ctx->vbq;
-    ret = vb2_fop_mmap(file, vma);
-    videodev->vdev.queue = oldq;
-    mutex_unlock(&videodev->ioctl_lock);
+static int hws_create_bufs(struct file *file, void *priv, struct v4l2_create_buffers *p)
+{
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	int ret;
+	mutex_lock(&ctx->qmutex);
+	ret = vb2_create_bufs(&ctx->vbq, p);
+	mutex_unlock(&ctx->qmutex);
+	return ret;
+}
 
-    return ret;
+static int hws_querybuf(struct file *file, void *priv, struct v4l2_buffer *p)
+{
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	int ret;
+	mutex_lock(&ctx->qmutex);
+	ret = vb2_querybuf(&ctx->vbq, p);
+	mutex_unlock(&ctx->qmutex);
+	return ret;
+}
+
+static int hws_prepare_buf(struct file *file, void *priv, struct v4l2_buffer *p)
+{
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	int ret;
+	mutex_lock(&ctx->qmutex);
+	ret = vb2_prepare_buf(&ctx->vbq, ctx->fh.vdev->v4l2_dev->mdev, p);
+	mutex_unlock(&ctx->qmutex);
+	return ret;
+}
+
+static int hws_qbuf(struct file *file, void *priv, struct v4l2_buffer *p)
+{
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	int ret;
+	mutex_lock(&ctx->qmutex);
+	ret = vb2_qbuf(&ctx->vbq, ctx->fh.vdev->v4l2_dev->mdev, p);
+	mutex_unlock(&ctx->qmutex);
+	return ret;
+}
+
+static int hws_dqbuf(struct file *file, void *priv, struct v4l2_buffer *p)
+{
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	int ret;
+	mutex_lock(&ctx->qmutex);
+	ret = vb2_dqbuf(&ctx->vbq, p, file->f_flags & O_NONBLOCK);
+	mutex_unlock(&ctx->qmutex);
+	return ret;
+}
+
+static int hws_streamon(struct file *file, void *priv, enum v4l2_buf_type type)
+{
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	int ret;
+	mutex_lock(&ctx->qmutex);
+	ret = vb2_streamon(&ctx->vbq, type);
+	mutex_unlock(&ctx->qmutex);
+	return ret;
+}
+
+static int hws_streamoff(struct file *file, void *priv, enum v4l2_buf_type type)
+{
+	struct hws_vfh_ctx *ctx = hws_ctx_from_file(file);
+	int ret;
+	mutex_lock(&ctx->qmutex);
+	ret = vb2_streamoff(&ctx->vbq, type);
+	mutex_unlock(&ctx->qmutex);
+	return ret;
 }
 
 /* forward declaration */
@@ -1424,14 +1536,14 @@ static const struct v4l2_ioctl_ops hws_ioctl_fops = {
 	.vidioc_g_fmt_vid_cap = hws_vidioc_g_fmt_vid_cap,
 	.vidioc_s_fmt_vid_cap = vidioc_s_fmt_vid_cap,
 	.vidioc_try_fmt_vid_cap = hws_vidioc_try_fmt_vid_cap,
-	.vidioc_reqbufs       = vb2_ioctl_reqbufs,
-	.vidioc_prepare_buf   = vb2_ioctl_prepare_buf,
-	.vidioc_create_bufs   = vb2_ioctl_create_bufs,
-	.vidioc_querybuf      = vb2_ioctl_querybuf,
-	.vidioc_qbuf          = vb2_ioctl_qbuf,
-	.vidioc_dqbuf         = vb2_ioctl_dqbuf,
-	.vidioc_streamon      = vb2_ioctl_streamon,
-	.vidioc_streamoff     = vb2_ioctl_streamoff,
+	.vidioc_reqbufs       = hws_reqbufs,
+	.vidioc_prepare_buf   = hws_prepare_buf,
+	.vidioc_create_bufs   = hws_create_bufs,
+	.vidioc_querybuf      = hws_querybuf,
+	.vidioc_qbuf          = hws_qbuf,
+	.vidioc_dqbuf         = hws_dqbuf,
+	.vidioc_streamon      = hws_streamon,
+	.vidioc_streamoff     = hws_streamoff,
 	.vidioc_g_std = hws_vidioc_g_std,
 	.vidioc_s_std = hws_vidioc_s_std,
 	.vidioc_enum_framesizes   	= hws_vidioc_enum_framesizes,
@@ -1705,11 +1817,17 @@ static int hws_start_streaming_multi(struct vb2_queue *q, unsigned int count)
 
     ctx->streaming = true;
 
-    /* Start hardware engine only once, on first streamer */
+    /* Start hardware engine only once, on first streamer. engine_lock keeps a
+     * start from one consumer from interleaving with a stop from another. */
+    mutex_lock(&videodev->engine_lock);
     if (atomic_inc_return(&videodev->engine_users) == 1) {
-        videodev->seqnr = 0;
+        unsigned long flags;
+        spin_lock_irqsave(&videodev->dev->videoslock[videodev->index], flags);
+        videodev->dev->m_FrameSeq[videodev->index] = 0;
+        spin_unlock_irqrestore(&videodev->dev->videoslock[videodev->index], flags);
         StartVideoCapture(videodev->dev, videodev->index);
     }
+    mutex_unlock(&videodev->engine_lock);
     return 0;
 }
 
@@ -1731,9 +1849,18 @@ static void hws_stop_streaming_multi(struct vb2_queue *q)
     }
     spin_unlock_irqrestore(&ctx->qlock, flags);
 
+    /*
+     * vb2 requires every buffer back before stop_streaming returns; it then
+     * frees the queue. A buffer the worker already popped is not on
+     * buf_queue, so wait for the worker to complete it.
+     */
+    wait_event(ctx->inflight_wq, atomic_read(&ctx->inflight) == 0);
+
     /* Stop engine when the last streamer goes away */
+    mutex_lock(&videodev->engine_lock);
     if (atomic_dec_return(&videodev->engine_users) == 0)
         StopVideoCapture(videodev->dev, videodev->index);
+    mutex_unlock(&videodev->engine_lock);
 }
 
 static const struct vb2_ops hwspcie_video_multi_qops = {
@@ -3431,181 +3558,153 @@ static int  MemCopyFrame(int nDecoder,BYTE * dest,int nWidth,int nHeight,int int
 }
 
 //--------------------------------
-static struct hwsvideo_buffer *hws_pop_any_buffer(struct hws_video *videodev, struct hws_vfh_ctx **out_ctx)
+/*
+ * Move one queued buffer from each streaming consumer onto @out and count it
+ * as in flight. One per consumer, so every app gets each frame once; this used
+ * to drain every queued buffer and fill them all with the same frame.
+ */
+static void hws_pop_one_per_consumer(struct hws_video *videodev, struct list_head *out)
 {
-    struct hws_vfh_ctx *ctx;
-    struct hwsvideo_buffer *buf = NULL;
-    unsigned long flags;
+	struct hws_vfh_ctx *ctx;
+	unsigned long flags, qflags;
 
-    *out_ctx = NULL;
-
-    spin_lock_irqsave(&videodev->consumers_lock, flags);
-    list_for_each_entry(ctx, &videodev->consumers, node) {
-        unsigned long qflags;
-        if (!ctx->streaming)
-            continue;
-        spin_lock_irqsave(&ctx->qlock, qflags);
-        if (!list_empty(&ctx->buf_queue)) {
-            buf = list_first_entry(&ctx->buf_queue, struct hwsvideo_buffer, queue);
-            list_del(&buf->queue);
-            *out_ctx = ctx;
-            spin_unlock_irqrestore(&ctx->qlock, qflags);
-            break;
-        }
-        spin_unlock_irqrestore(&ctx->qlock, qflags);
-    }
-    spin_unlock_irqrestore(&videodev->consumers_lock, flags);
-
-    return buf;
+	spin_lock_irqsave(&videodev->consumers_lock, flags);
+	list_for_each_entry(ctx, &videodev->consumers, node) {
+		if (!ctx->streaming)
+			continue;
+		spin_lock_irqsave(&ctx->qlock, qflags);
+		if (!list_empty(&ctx->buf_queue)) {
+			list_move_tail(ctx->buf_queue.next, out);
+			atomic_inc(&ctx->inflight);
+		}
+		spin_unlock_irqrestore(&ctx->qlock, qflags);
+	}
+	spin_unlock_irqrestore(&videodev->consumers_lock, flags);
 }
+
+/* Complete a buffer popped by hws_pop_one_per_consumer() and drop its in-flight count. */
+static void hws_complete_buffer(struct hwsvideo_buffer *buf, enum vb2_buffer_state state)
+{
+	struct hws_vfh_ctx *ctx = vb2_get_drv_priv(buf->vb.vb2_buf.vb2_queue);
+
+	vb2_buffer_done(&buf->vb.vb2_buf, state);
+	if (atomic_dec_and_test(&ctx->inflight))
+		wake_up(&ctx->inflight_wq);
+}
+
+/*
+ * Deliver the newest complete frame to one buffer of each streaming consumer.
+ * videoslock is held only to pick the frame slot and mark it READING; the
+ * copies and scaling run with interrupts enabled (they used to run under
+ * spin_lock_irqsave, for milliseconds per buffer). With several consumers the
+ * frame is produced once and memcpy'd to the others.
+ */
 void video_data_process(struct work_struct *p_work)
 {
 	struct hws_video *videodev = container_of(p_work, struct hws_video, videowork);
-	struct hwsvideo_buffer *buf;
-	//unsigned long flags;
-	unsigned long devflags;
-	int nVindex=-1;
-	int i;
-	//int copysize;
-	//uint8_t *pSrc;
-	int in_width;
-	int in_height;
-	int in_vsize;
-	int out_size=0;
-	BYTE *bBuf[4];
-	int  nCopySize[4];
-	int interlace;
-	int miss_freme =0;
 	struct hws_pcie_dev *pdx = videodev->dev;
-	int nCh;
-	bBuf[0] = NULL;
-	bBuf[1] = NULL;
-	bBuf[2] = NULL;
-	bBuf[3] = NULL;
-	nCopySize[0] =0;
-	nCopySize[1] =0;
-	nCopySize[2] =0;
-	nCopySize[3] =0;
-	nCh = videodev->index;
-	spin_lock_irqsave(&pdx->videoslock[nCh], devflags);
-	in_width = pdx->m_pVCAPStatus[nCh][0].dwWidth ;
-	in_height = pdx->m_pVCAPStatus[nCh][0].dwHeight;
-	if(pdx->m_pVCAPStatus[nCh][0].dwinterlace ==1)
-	{
-		in_height = in_height*2;
-	}
-	in_vsize = in_width*in_height*2;
+	int nCh = videodev->index;
+	ACAP_VIDEO_INFO *vi = &pdx->m_VideoInfo[nCh];
+	struct hwsvideo_buffer *buf, *tmp;
+	LIST_HEAD(todo);
+	unsigned long flags;
+	int slot = -1, i, k, no_video;
+	int in_w = 0, in_h = 0, interlace = 0, out_w, out_h, out_size;
+	BYTE *bBuf[4] = { NULL, NULL, NULL, NULL };
+	int nCopySize[4] = { 0, 0, 0, 0 };
+	BYTE *first = NULL;
+	enum vb2_buffer_state state;
+	u64 frame_ts;
+	u32 frame_seq;
 
-	//printk("video_data_process [%d]dev->m_curr_No_Video[videodev->index] =%d \n",videodev->index,dev->m_curr_No_Video[videodev->index]);
-	//---------------------------
-	if(pdx->m_curr_No_Video[nCh]==0 )
-	{
-		nVindex = -1;
-		if(pdx->m_VideoInfo[nCh].pStatusInfo[pdx->m_nRDVideoIndex[nCh]].byLock == MEM_LOCK)
-		{
-			nVindex =pdx->m_nRDVideoIndex[nCh];
-			bBuf[0]  = pdx->m_VideoInfo[nCh].m_pVideoBufData[nVindex];
-			bBuf[1] = pdx->m_VideoInfo[nCh].m_pVideoBufData1[nVindex];
-			bBuf[2] = pdx->m_VideoInfo[nCh].m_pVideoBufData2[nVindex];
-			bBuf[3] = pdx->m_VideoInfo[nCh].m_pVideoBufData3[nVindex];
-			nCopySize[0] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[0];
-			nCopySize[1] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[1];
-			nCopySize[2] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[2];
-			nCopySize[3] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[3];
-			interlace = pdx->m_VideoInfo[nCh].pStatusInfo[nVindex].dwinterlace;
-		}
-		if(nVindex== -1)
-		{
-			miss_freme = 1;
-			if(pdx->m_nRDVideoIndex[nCh] == 0)
-			{
-				nVindex = MAX_VIDEO_QUEUE-1;
+	spin_lock_irqsave(&pdx->videoslock[nCh], flags);
+	no_video = pdx->m_curr_No_Video[nCh];
+	if (!no_video) {
+		/* the newest complete frame sits just behind the writer */
+		for (i = 1; i <= MAX_VIDEO_QUEUE; i++) {
+			k = (vi->m_nVideoIndex + MAX_VIDEO_QUEUE - i) % MAX_VIDEO_QUEUE;
+			if (vi->pStatusInfo[k].byLock == MEM_LOCK) {
+				slot = k;
+				break;
 			}
+		}
+		if (slot < 0) {
+			/* nothing new since the last run: deliver nothing */
+			spin_unlock_irqrestore(&pdx->videoslock[nCh], flags);
+			return;
+		}
+		/* older unread frames are stale by now */
+		for (k = 0; k < MAX_VIDEO_QUEUE; k++) {
+			if (k != slot && vi->pStatusInfo[k].byLock == MEM_LOCK) {
+				vi->pStatusInfo[k].byLock = MEM_UNLOCK;
+				pdx->m_FramesDropped[nCh]++;
+			}
+		}
+		vi->pStatusInfo[slot].byLock = MEM_READING;
+		in_w = vi->pStatusInfo[slot].dwWidth;
+		in_h = vi->pStatusInfo[slot].dwHeight;
+		interlace = vi->pStatusInfo[slot].dwinterlace;
+		if (interlace == 1)
+			in_h *= 2;	/* MemCopyFrame line-doubles each field */
+		for (i = 0; i < 4; i++)
+			nCopySize[i] = vi->pStatusInfo[slot].dwSize[i];
+		bBuf[0] = vi->m_pVideoBufData[slot];
+		bBuf[1] = vi->m_pVideoBufData1[slot];
+		bBuf[2] = vi->m_pVideoBufData2[slot];
+		bBuf[3] = vi->m_pVideoBufData3[slot];
+		frame_ts = vi->pStatusInfo[slot].tsNs;
+		frame_seq = vi->pStatusInfo[slot].seq;
+	} else {
+		/* no signal: discard captured frames and send a blue frame */
+		for (k = 0; k < MAX_VIDEO_QUEUE; k++)
+			if (vi->pStatusInfo[k].byLock == MEM_LOCK)
+				vi->pStatusInfo[k].byLock = MEM_UNLOCK;
+		frame_ts = ktime_get_ns();
+		frame_seq = pdx->m_FrameSeq[nCh]++;
+	}
+	out_w = videodev->current_out_width;
+	out_h = videodev->curren_out_height;
+	spin_unlock_irqrestore(&pdx->videoslock[nCh], flags);
+	out_size = out_w * out_h * 2;
+
+	hws_pop_one_per_consumer(videodev, &todo);
+
+	list_for_each_entry_safe(buf, tmp, &todo, queue) {
+		list_del(&buf->queue);
+		state = VB2_BUF_STATE_DONE;
+		if (!buf->mem || vb2_plane_size(&buf->vb.vb2_buf, 0) < out_size) {
+			state = VB2_BUF_STATE_ERROR;
+		} else if (first) {
+			memcpy(buf->mem, first, out_size);
+		} else if (no_video) {
+			SetNoVideoMem(buf->mem, out_w, out_h);
+			first = buf->mem;
+		} else if (in_w == out_w && in_h == out_h) {
+			if (MemCopyFrame(nCh, buf->mem, in_w, in_h, interlace, bBuf, nCopySize) < 0)
+				state = VB2_BUF_STATE_ERROR;
 			else
-			{
-				nVindex = pdx->m_nRDVideoIndex[nCh]-1;
-			}
-			bBuf[0]  = pdx->m_VideoInfo[nCh].m_pVideoBufData[nVindex];
-			bBuf[1] = pdx->m_VideoInfo[nCh].m_pVideoBufData1[nVindex];
-			bBuf[2] = pdx->m_VideoInfo[nCh].m_pVideoBufData2[nVindex];
-			bBuf[3] = pdx->m_VideoInfo[nCh].m_pVideoBufData3[nVindex];
-			nCopySize[0] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[0];
-			nCopySize[1] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[1];
-			nCopySize[2] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[2];
-			nCopySize[3] = pdx->m_VideoInfo[nCh].m_VideoBufferSize[3];
-			interlace = pdx->m_VideoInfo[nCh].pStatusInfo[nVindex].dwinterlace;
+				first = buf->mem;
+		} else if (vi->m_pVideoScalerBuf &&
+			   MemCopyFrame(nCh, vi->m_pVideoScalerBuf, in_w, in_h, interlace, bBuf, nCopySize) == 0) {
+			VideoScaler(vi->m_pVideoScalerBuf, buf->mem, in_w, in_h, out_w, out_h);
+			first = buf->mem;
+		} else {
+			state = VB2_BUF_STATE_ERROR;
 		}
-	}
-	else
-	{
-		//spin_lock_irqsave(&pdx->videoslock[nCh], devflags);
-		for( i = 0 ;i<MAX_VIDEO_QUEUE;i++)
-		{
-			if(pdx->m_VideoInfo[nCh].pStatusInfo[i].byLock == MEM_LOCK)
-			{
-				pdx->m_VideoInfo[nCh].pStatusInfo[i].byLock = MEM_UNLOCK;
-			}
-		}
-		//spin_unlock_irqrestore(&pdx->videoslock[nCh], devflags);
-	}
-	//---------------------------
-	for (;;) {
-        struct hws_vfh_ctx *ctx;
-        struct hwsvideo_buffer *buf;
-
-        /* We cannot hold pdx spinlock while taking other locks. So: keep pdx lock held,
-         * but hws_pop_any_buffer only takes spinlocks (OK). */
-        buf = hws_pop_any_buffer(videodev, &ctx);
-        if (!buf)
-            break;
-
-        buf->vb.vb2_buf.timestamp = ktime_get_ns();
-        buf->vb.field = V4L2_FIELD_NONE;
-
-        if (!buf->mem) {
-            vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
-            continue;
-        }
-		// copy data to buffer
-		if(pdx->m_curr_No_Video[nCh]==0 )
-		{
-			out_size = videodev->current_out_width*videodev->curren_out_height*2;
-			if(in_vsize != out_size)
-			{
-				//printk("in_width =%d  in_height =%d \n",in_width,in_height);
-				//printk("out_width =%d out_height =%d \n",videodev->current_out_width,videodev->curren_out_height);
-				if(pdx->m_VideoInfo[nCh].m_pVideoScalerBuf)
-				{
-					MemCopyFrame(nCh,pdx->m_VideoInfo[nCh].m_pVideoScalerBuf,in_width,in_height,interlace,bBuf,nCopySize);
-					VideoScaler(pdx->m_VideoInfo[nCh].m_pVideoScalerBuf,buf->mem,in_width,in_height,videodev->current_out_width,videodev->curren_out_height);
-				}
-			}
-			else
-			{
-				MemCopyFrame(nCh,buf->mem,in_width,in_height,interlace,bBuf,nCopySize);
-			}
-		}
-		else
-		{
-			SetNoVideoMem(buf->mem,videodev->current_out_width,videodev->curren_out_height);
-		}
-		buf->vb.sequence = videodev->seqnr++;
-        vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
+		/* every consumer's copy carries the frame's own time and number */
+		buf->vb.vb2_buf.timestamp = frame_ts;
+		buf->vb.field = V4L2_FIELD_NONE;
+		buf->vb.sequence = frame_seq;
+		if (state == VB2_BUF_STATE_DONE)
+			vb2_set_plane_payload(&buf->vb.vb2_buf, 0, out_size);
+		hws_complete_buffer(buf, state);
 	}
 
-	vexit:
-	//spin_lock_irqsave(&pdx->videoslock[nCh], devflags);
-	if(pdx->m_curr_No_Video[nCh]==0 && nVindex >= 0)
-	{
-		pdx->m_VideoInfo[nCh].pStatusInfo[nVindex].byLock  = MEM_UNLOCK;
-		pdx->m_nRDVideoIndex[nCh] = nVindex+1;
-		if(pdx->m_nRDVideoIndex[nCh] >=MAX_VIDEO_QUEUE)
-		{
-			pdx->m_nRDVideoIndex[nCh] =0;
-		}
+	if (slot >= 0) {
+		spin_lock_irqsave(&pdx->videoslock[nCh], flags);
+		vi->pStatusInfo[slot].byLock = MEM_UNLOCK;
+		spin_unlock_irqrestore(&pdx->videoslock[nCh], flags);
 	}
-	spin_unlock_irqrestore(&pdx->videoslock[nCh], devflags);
-	return;
 }
 static void hws_get_video_param(struct hws_pcie_dev *dev,int index)
 {
@@ -3686,7 +3785,7 @@ int hws_video_register(struct hws_pcie_dev *dev)
 		//-------------------
 		vdev->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 		vdev->v4l2_dev = &(dev->video[i].v4l2_dev);
-		vdev->lock = &(dev->video[i].video_lock);
+		vdev->lock = NULL;	/* locking is per queue, see hws_unlocked_ioctl() */
 		vdev->fops = &hws_fops;
 		strcpy(vdev->name,KBUILD_MODNAME);
 		vdev->release = video_device_release_empty;
@@ -3696,6 +3795,7 @@ int hws_video_register(struct hws_pcie_dev *dev)
 		mutex_init(&(dev->video[i].queue_lock));
 		spin_lock_init(&dev->video[i].consumers_lock);
 		mutex_init(&dev->video[i].ioctl_lock);
+		mutex_init(&dev->video[i].engine_lock);
 		INIT_LIST_HEAD(&dev->video[i].consumers);
 		atomic_set(&dev->video[i].engine_users, 0);
 
@@ -3722,7 +3822,7 @@ int hws_video_register(struct hws_pcie_dev *dev)
 
 		q->lock = &(dev->video[i].queue_lock);
 		q->dev = &(dev->pdev->dev);
-		vdev->queue = q;
+		vdev->queue = NULL;	/* each open() has its own queue */
 		err = vb2_queue_init(q);
 		if(err != 0){
 			printk(KERN_ERR " vb2_queue_init failed !!!!! \n");
@@ -4141,8 +4241,19 @@ static int SetVideoFormteSize(struct hws_pcie_dev *pdx,int ch,int w,int h)
 
 	hf_size2 = (w*h*2)/(4*16*128);
 	hf_size2 = w*h*2 -(hf_size2*16*128*3);
-	//if((hf_size2 <0) ||(hf_size2 > m_MaxHWVideoBufferSize)||(hf_size >m_MaxHWVideoBufferSize))
 	if(hf_size2 <0)
+	{
+		return -1;
+	}
+	hf_size2 = hf_size2/(16*128);
+	hf_size2 = (hf_size2+1)*16*128;
+	/*
+	 * The card DMAs each quarter into one buffer whose last
+	 * MAX_AUDIO_CAP_SIZE bytes hold the audio ring. A larger quarter would
+	 * be written past the buffer, so never program it.
+	 */
+	if(hf_size > pdx->m_MaxHWVideoBufferSize - MAX_AUDIO_CAP_SIZE ||
+	   hf_size2 > pdx->m_MaxHWVideoBufferSize - MAX_AUDIO_CAP_SIZE)
 	{
 		return -1;
 	}
@@ -4159,346 +4270,167 @@ static int SetVideoFormteSize(struct hws_pcie_dev *pdx,int ch,int w,int h)
 	pdx->m_format[0].HLAF_SIZE = hf_size;
 	pdx->m_format[1].HLAF_SIZE = hf_size;
 	pdx->m_format[2].HLAF_SIZE = hf_size;
-
-	hf_size2 = hf_size2/(16*128);
-	hf_size2 = (hf_size2+1)*16*128;
 	pdx->m_format[3].HLAF_SIZE = hf_size2;
 	return 1;
 
 }
 
-static void DmaMemFreePool(struct hws_pcie_dev *pdx)
+/*
+ * The frame-queue and audio slot buffers are only touched by the CPU, so
+ * they need no physical contiguity: kvzalloc falls back to vmalloc instead
+ * of failing a 4 MiB (order-10) kmalloc once memory is fragmented.
+ */
+static uint8_t **video_slot_sets(struct hws_pcie_dev *pdx, int index, int set)
 {
-	//Trace t("DmaMemFreePool()");
-	int	k;
-	int index;
-	unsigned long phyvirt_addr;
-	if(pdx->m_bBufferAllocate == TRUE)
-	{
-		//---------------
-		for(index=0; index<pdx->m_nMaxChl; index++)
-		{
-			if(pdx->m_pbyVideoBuffer[index])
-			{
-				//printk("DmaMemFreePool ::m_pbyVideoBuffer = %p\n",  pdx->m_pbyVideoBuffer[index]);
-				#if 0
-				for (phyvirt_addr=(unsigned long)pdx->m_pbyVideoBuffer_area[i]; phyvirt_addr < ((unsigned long)pdx->m_pbyVideoBuffer_area[i] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
-				{
-				// clear all pages
-				ClearPageReserved(virt_to_page(phyvirt_addr));
-			}
-			kfree(pdx->m_pbyVideoBuffer[i]);
-			#else
-			dma_free_coherent(&pdx->pdev->dev, pdx->m_MaxHWVideoBufferSize, pdx->m_pbyVideoBuffer[index], pdx->m_pbyVideo_phys[index]);
-			#endif
-			pdx->m_pbyVideoBuffer[index] = NULL;
-			}
-		}
-		//----------------------------------------------------
-		for(index=0; index<pdx->m_nCurreMaxVideoChl;index++)
-		{
-			//printk("DmaMemFreePool ::m_pVideoScalerBuf = %p\n",  pdx->m_VideoInfo[index].m_pVideoScalerBuf);
-			if(pdx->m_VideoInfo[index].m_pVideoScalerBuf !=NULL)
-			{
-				vfree(pdx->m_VideoInfo[index].m_pVideoScalerBuf);
-				pdx->m_VideoInfo[index].m_pVideoScalerBuf = NULL;
-			}
-			for( k=0; k<MAX_VIDEO_QUEUE;k++)
-			{
-				//-------------------------
-				//printk("DmaMemFreePool ::m_pVideoBufData[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData[k]);
-				if(pdx->m_VideoInfo[index].m_pVideoBufData[k])
-				{
-					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
-					{
-						// clear all pages
-						ClearPageReserved(virt_to_page(phyvirt_addr));
-					}
-					kfree(pdx->m_VideoInfo[index].m_pVideoBufData[k]);
-					pdx->m_VideoInfo[index].m_pVideoBufData[k] = NULL;
-				}
-				//---------------------------------
-				//-------------------------
-				//printk("DmaMemFreePool ::m_pVideoBufData1[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData1[k]);
-				if(pdx->m_VideoInfo[index].m_pVideoBufData1[k])
-				{
-					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
-					{
-						// clear all pages
-						ClearPageReserved(virt_to_page(phyvirt_addr));
-					}
-					kfree(pdx->m_VideoInfo[index].m_pVideoBufData1[k]);
-					pdx->m_VideoInfo[index].m_pVideoBufData1[k] = NULL;
-				}
-				//---------------------------------
-				//-------------------------
-				//printk("DmaMemFreePool ::m_pVideoBufData2[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData2[k]);
-				if(pdx->m_VideoInfo[index].m_pVideoBufData2[k])
-				{
-					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
-					{
-						// clear all pages
-						ClearPageReserved(virt_to_page(phyvirt_addr));
-					}
-					kfree(pdx->m_VideoInfo[index].m_pVideoBufData2[k]);
-					pdx->m_VideoInfo[index].m_pVideoBufData2[k] = NULL;
-				}
-				//---------------------------------
-				//-------------------------
-				//printk("DmaMemFreePool ::m_pVideoBufData3[%d] = %p\n",k,pdx->m_VideoInfo[index].m_pVideoBufData3[k]);
-				if(pdx->m_VideoInfo[index].m_pVideoBufData3[k])
-				{
-					for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k] + pdx->m_MaxHWVideoBufferSize);phyvirt_addr+=PAGE_SIZE)
-					{
-						// clear all pages
-						ClearPageReserved(virt_to_page(phyvirt_addr));
-					}
-					kfree(pdx->m_VideoInfo[index].m_pVideoBufData3[k]);
-					pdx->m_VideoInfo[index].m_pVideoBufData3[k] = NULL;
-				}
-				//---------------------------------
-
-			}
-			//----audio release
-			for( k=0; k<MAX_AUDIO_QUEUE;k++)
-			{
-				if(pdx->m_AudioInfo[index].m_pAudioBufData[k])
-				{
-					for (phyvirt_addr=(unsigned long)pdx->m_AudioInfo[index].m_pAudioData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_AudioInfo[index].m_pAudioData_area[k] + pdx->m_dwAudioPTKSize);phyvirt_addr+=PAGE_SIZE)
-					{
-						// clear all pages
-						ClearPageReserved(virt_to_page(phyvirt_addr));
-					}
-					kfree(pdx->m_AudioInfo[index].m_pAudioBufData[k]);
-					pdx->m_AudioInfo[index].m_pAudioBufData[k] = NULL;
-				}
-			}
-
-		}
-		pdx->m_bBufferAllocate = FALSE;
+	switch (set) {
+	case 0: return pdx->m_VideoInfo[index].m_pVideoBufData;
+	case 1: return pdx->m_VideoInfo[index].m_pVideoBufData1;
+	case 2: return pdx->m_VideoInfo[index].m_pVideoBufData2;
+	default: return pdx->m_VideoInfo[index].m_pVideoBufData3;
 	}
 }
 
-
-static int  DmaMemAllocPool(struct hws_pcie_dev *pdx)
+static void DmaMemFreePool(struct hws_pcie_dev *pdx)
 {
-	u32			status	= 0;
-	uint8_t				i,k;
+	int k, set, index;
+	if(pdx->m_bBufferAllocate != TRUE)
+		return;
+
+	for(index=0; index<pdx->m_nMaxChl; index++)
+	{
+		if(pdx->m_pbyVideoBuffer[index])
+		{
+			dma_free_coherent(&pdx->pdev->dev, pdx->m_MaxHWVideoBufferSize, pdx->m_pbyVideoBuffer[index], pdx->m_pbyVideo_phys[index]);
+			pdx->m_pbyVideoBuffer[index] = NULL;
+		}
+	}
+	for(index=0; index<pdx->m_nCurreMaxVideoChl; index++)
+	{
+		vfree(pdx->m_VideoInfo[index].m_pVideoScalerBuf);
+		pdx->m_VideoInfo[index].m_pVideoScalerBuf = NULL;
+		for(k=0; k<MAX_VIDEO_QUEUE; k++)
+		{
+			for(set=0; set<4; set++)
+			{
+				kvfree(video_slot_sets(pdx, index, set)[k]);
+				video_slot_sets(pdx, index, set)[k] = NULL;
+			}
+		}
+		for(k=0; k<MAX_AUDIO_QUEUE; k++)
+		{
+			kfree(pdx->m_AudioInfo[index].m_pAudioBufData[k]);
+			pdx->m_AudioInfo[index].m_pAudioBufData[k] = NULL;
+		}
+	}
+	pdx->m_bBufferAllocate = FALSE;
+}
+
+/*
+ * Allocate the m_nMaxChl DMA buffers of @size bytes. The card reaches host
+ * memory through a table of 512 MiB windows (SetDMAAddress), so a buffer must
+ * not cross a window boundary. On any failure, frees what it allocated.
+ */
+static int dma_alloc_video_buffers(struct hws_pcie_dev *pdx, int size)
+{
+	int i;
+	for(i=0; i<pdx->m_nMaxChl; i++)
+	{
+		pdx->m_pbyVideoBuffer[i] = dma_alloc_coherent(&pdx->pdev->dev, size, &pdx->m_pbyVideo_phys[i], GFP_KERNEL | __GFP_NOWARN);
+		if(!pdx->m_pbyVideoBuffer[i] ||
+		   ((u64)pdx->m_pbyVideo_phys[i] >> 29) != (((u64)pdx->m_pbyVideo_phys[i] + size - 1) >> 29))
+		{
+			if(pdx->m_pbyVideoBuffer[i])
+				dma_free_coherent(&pdx->pdev->dev, size, pdx->m_pbyVideoBuffer[i], pdx->m_pbyVideo_phys[i]);
+			pdx->m_pbyVideoBuffer[i] = NULL;
+			while(--i >= 0)
+			{
+				dma_free_coherent(&pdx->pdev->dev, size, pdx->m_pbyVideoBuffer[i], pdx->m_pbyVideo_phys[i]);
+				pdx->m_pbyVideoBuffer[i] = NULL;
+			}
+			return -1;
+		}
+	}
+	pdx->m_MaxHWVideoBufferSize = size;
+	return 0;
+}
+
+static int DmaMemAllocPool(struct hws_pcie_dev *pdx)
+{
+	uint8_t i, k;
+	int index, set;
 	dma_addr_t phy_addr;
-	int  index;
-	unsigned long phyvirt_addr;
+
 	if(pdx->m_bBufferAllocate == TRUE)
 	{
 		DmaMemFreePool(pdx);
 	}
-	//------------
+	/* from here on a failure frees whatever was allocated */
+	pdx->m_bBufferAllocate = TRUE;
+	if(dma_alloc_video_buffers(pdx, MAX_MM_VIDEO_SIZE_DCI) == 0)
+	{
+		pdx->m_MaxInputWidth = pdx->m_DeviceHW_Version ? 4096 : 3840;
+		dev_info(&pdx->pdev->dev, "DMA buffers: %d x %d KiB, input up to %dx2160\n",
+			 pdx->m_nMaxChl, MAX_MM_VIDEO_SIZE_DCI/1024, pdx->m_MaxInputWidth);
+	}
+	else if(dma_alloc_video_buffers(pdx, MAX_MM_VIDEO_SIZE) == 0)
+	{
+		pdx->m_MaxInputWidth = 3840;
+		dev_warn(&pdx->pdev->dev, "4.5 MiB DMA buffers unavailable (no IOMMU translation or CMA); "
+			 "4096-wide input will be captured at 3840\n");
+	}
+	else
+	{
+		printk("m_pbyVideoBuffer mem Allocate Fail ************\n");
+		goto fail;
+	}
 	for(i=0; i<pdx->m_nMaxChl; i++)
 	{
+		phy_addr = pdx->m_pbyVideo_phys[i];
+		pdx->m_dwVideoBuffer[i] = 	  ((u64)phy_addr)&0xFFFFFFFF;
+		pdx->m_dwVideoHighBuffer[i] = ((u64)phy_addr>>32)&0xFFFFFFFF;
 
-		//printk("kmalloc [%d]size=%X************\n", i,pdx->m_MaxHWVideoBufferSize);
-		pdx->m_pbyVideoBuffer[i] = dma_alloc_coherent(&pdx->pdev->dev, pdx->m_MaxHWVideoBufferSize, &pdx->m_pbyVideo_phys[i], GFP_KERNEL);
-
-
-		if(pdx->m_pbyVideoBuffer[i]== NULL)
-		{
-			printk("m_pbyVideoBuffer[%d] mem Allocate Fail ************\n", i);
-			pdx->m_bBufferAllocate = TRUE;
-			DmaMemFreePool(pdx);
-			pdx->m_bBufferAllocate = FALSE;
-			status = -1;
-			return status;
-		}
-		#if 0
-		pdx->m_pbyVideoBuffer_area[i] = (char *)(((unsigned long)pdx->m_pbyVideoBuffer[i] + PAGE_SIZE -1) & PAGE_MASK);
-		for (phyvirt_addr=(unsigned long)pdx->m_pbyVideoBuffer_area[i]; phyvirt_addr < ((unsigned long)pdx->m_pbyVideoBuffer_area[i] + (pdx->m_MaxHWVideoBufferSize));
-		phyvirt_addr+=PAGE_SIZE)
-		{
-		// reserve all pages to make them remapable
-		SetPageReserved(virt_to_page(phyvirt_addr));
-	}
-	memset(pdx->m_pbyVideoBuffer[i] , 0x0,(pdx->m_MaxHWVideoBufferSize) );
-	phy_addr= (dma_addr_t)virt_to_phys(pdx->m_pbyVideoBuffer[i]);
-	pdx->m_pbyVideo_phys[i] = phy_addr;
-	#else
-	phy_addr = 	pdx->m_pbyVideo_phys[i];
-	#endif
-	//printk("PHY= %X=%X\n",phy_addr,pdx->m_pbyVideo_phys[i]);
-
-	pdx->m_dwVideoBuffer[i] = 	  ((u64)phy_addr)&0xFFFFFFFF;
-	pdx->m_dwVideoHighBuffer[i] = ((u64)phy_addr>>32)&0xFFFFFFFF;;
-
-	pdx->m_pbyAudioBuffer[i] = (BYTE *)(pdx->m_pbyVideoBuffer[i] + pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE );
-	#if 0
-	phy_addr= (dma_addr_t)virt_to_phys(pdx->m_pbyAudioBuffer[i]);
-	#else
-	phy_addr = pdx->m_pbyVideo_phys[i] + (pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE);
-	#endif
-	pdx->m_pbyAudio_phys[i] = phy_addr;
-
-	pdx->m_dwAudioBuffer[i] =    pdx->m_dwVideoBuffer[i]+ pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE;
-	pdx->m_dwAudioBufferHigh[i] = pdx->m_dwVideoHighBuffer[i];
-	//printk("[MV]Mem Video::m_dwVideoBuffer[%d] = %x\n", i, pdx->m_dwVideoBuffer[i]);
-	//printk("[MV]Mem Video::m_dwVideoHighBuffer[%d] = %x\n", i, pdx->m_dwVideoHighBuffer[i]);
-	//printk("[MV]Mem Audio::m_dwAudioBuffer[%d] = %x\n", i, pdx->m_dwAudioBuffer[i]);
-	//printk("[MV]Mem Audio::m_dwAudioBufferHigh[%d] = %x\n", i, pdx->m_dwAudioBufferHigh[i]);
-
+		/* the audio ring lives in the last MAX_AUDIO_CAP_SIZE bytes of each video buffer */
+		pdx->m_pbyAudioBuffer[i] = (BYTE *)(pdx->m_pbyVideoBuffer[i] + pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE );
+		pdx->m_pbyAudio_phys[i] = pdx->m_pbyVideo_phys[i] + (pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE);
+		pdx->m_dwAudioBuffer[i] =    pdx->m_dwVideoBuffer[i]+ pdx->m_MaxHWVideoBufferSize -MAX_AUDIO_CAP_SIZE;
+		pdx->m_dwAudioBufferHigh[i] = pdx->m_dwVideoHighBuffer[i];
 	}
 
-
-	//KdPrint(("Mem allocate::m_dwAudioBuffer[%d] = %x\n", i, pdx->m_dwAudioBuffer));
 	//-------------- video buffer
 	for(index=0; index<pdx->m_nCurreMaxVideoChl; index++)
 	{
 		pdx->m_VideoInfo[index].m_pVideoScalerBuf = vmalloc(MAX_VIDEO_HW_W*MAX_VIDEO_HW_H*2);
 		if(pdx->m_VideoInfo[index].m_pVideoScalerBuf ==NULL)
+			goto fail;
+		for(k=0; k<MAX_VIDEO_QUEUE; k++)
 		{
-			pdx->m_bBufferAllocate = TRUE;
-			DmaMemFreePool(pdx);
-			pdx->m_bBufferAllocate = FALSE;
-			status = -1;
-			return status;
-		}
-		for( k=0; k<MAX_VIDEO_QUEUE;k++)
-		{
-			//----------------------------------- buf
-			pdx->m_VideoInfo[index].m_pVideoBufData[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);
-			if(!pdx->m_VideoInfo[index].m_pVideoBufData[k])
+			for(set=0; set<4; set++)
 			{
-
-				pdx->m_bBufferAllocate = TRUE;
-				DmaMemFreePool(pdx);
-				pdx->m_bBufferAllocate = FALSE;
-				status = -1;
-				return status;
-
+				video_slot_sets(pdx, index, set)[k] = kvzalloc(pdx->m_MaxHWVideoBufferSize, GFP_KERNEL);
+				if(!video_slot_sets(pdx, index, set)[k])
+					goto fail;
 			}
-			else
-			{
-
-				pdx->m_VideoInfo[index].m_pVideoData_area[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData[k] + PAGE_SIZE -1) & PAGE_MASK);
-				for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area[k] + (pdx->m_MaxHWVideoBufferSize));
-					 phyvirt_addr+=PAGE_SIZE)
-					 {
-						 // reserve all pages to make them remapable
-						 SetPageReserved(virt_to_page(phyvirt_addr));
-					 }
-					 memset(pdx->m_VideoInfo[index].m_pVideoBufData[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
-			}
-			//-------------------------------------------------------
-			//----------------------------------- buf1
-			pdx->m_VideoInfo[index].m_pVideoBufData1[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);
-			if(!pdx->m_VideoInfo[index].m_pVideoBufData1[k])
-			{
-
-				pdx->m_bBufferAllocate = TRUE;
-				DmaMemFreePool(pdx);
-				pdx->m_bBufferAllocate = FALSE;
-				status = -1;
-				return status;
-
-			}
-			else
-			{
-
-				pdx->m_VideoInfo[index].m_pVideoData_area1[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData[k] + PAGE_SIZE -1) & PAGE_MASK);
-				for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area1[k] + (pdx->m_MaxHWVideoBufferSize));
-					 phyvirt_addr+=PAGE_SIZE)
-					 {
-						 // reserve all pages to make them remapable
-						 SetPageReserved(virt_to_page(phyvirt_addr));
-					 }
-					 memset(pdx->m_VideoInfo[index].m_pVideoBufData1[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
-			}
-			//-------------------------------------------------------
-			//----------------------------------- buf2
-			pdx->m_VideoInfo[index].m_pVideoBufData2[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);
-			if(!pdx->m_VideoInfo[index].m_pVideoBufData2[k])
-			{
-
-				pdx->m_bBufferAllocate = TRUE;
-				DmaMemFreePool(pdx);
-				pdx->m_bBufferAllocate = FALSE;
-				status = -1;
-				return status;
-
-			}
-			else
-			{
-
-				pdx->m_VideoInfo[index].m_pVideoData_area2[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData2[k] + PAGE_SIZE -1) & PAGE_MASK);
-				for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area2[k] + (pdx->m_MaxHWVideoBufferSize));
-					 phyvirt_addr+=PAGE_SIZE)
-					 {
-						 // reserve all pages to make them remapable
-						 SetPageReserved(virt_to_page(phyvirt_addr));
-					 }
-					 memset(pdx->m_VideoInfo[index].m_pVideoBufData2[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
-			}
-			//-------------------------------------------------------
-			//----------------------------------- buf3
-			pdx->m_VideoInfo[index].m_pVideoBufData3[k]  = kmalloc((pdx->m_MaxHWVideoBufferSize), GFP_KERNEL);
-			if(!pdx->m_VideoInfo[index].m_pVideoBufData3[k])
-			{
-
-				pdx->m_bBufferAllocate = TRUE;
-				DmaMemFreePool(pdx);
-				pdx->m_bBufferAllocate = FALSE;
-				status = -1;
-				return status;
-
-			}
-			else
-			{
-
-				pdx->m_VideoInfo[index].m_pVideoData_area3[k] = (char *)(((unsigned long)pdx->m_VideoInfo[index].m_pVideoBufData3[k] + PAGE_SIZE -1) & PAGE_MASK);
-				for (phyvirt_addr=(unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k]; phyvirt_addr < ((unsigned long)pdx->m_VideoInfo[index].m_pVideoData_area3[k] + (pdx->m_MaxHWVideoBufferSize));
-					 phyvirt_addr+=PAGE_SIZE)
-					 {
-						 // reserve all pages to make them remapable
-						 SetPageReserved(virt_to_page(phyvirt_addr));
-					 }
-					 memset(pdx->m_VideoInfo[index].m_pVideoBufData3[k] ,0x0,pdx->m_MaxHWVideoBufferSize );
-			}
-			//-------------------------------------------------------
 			pdx->m_VideoInfo[index].pStatusInfo[k].byLock = MEM_UNLOCK;
 			pdx->m_VideoInfo[index].m_nVideoIndex = 0;
 		}
 	}
 
 	//----------audio alloc
-	#if 1
 	for(i=0; i<pdx->m_nCurreMaxVideoChl; i++)
 	{
 		for( k=0; k<MAX_AUDIO_QUEUE;k++)
 		{
-			pdx->m_AudioInfo[i].m_pAudioBufData[k] =kmalloc(pdx->m_dwAudioPTKSize, GFP_KERNEL);
+			pdx->m_AudioInfo[i].m_pAudioBufData[k] = kzalloc(pdx->m_dwAudioPTKSize, GFP_KERNEL);
 			if(!pdx->m_AudioInfo[i].m_pAudioBufData[k])
-			{
-				pdx->m_bBufferAllocate = TRUE;
-				DmaMemFreePool(pdx);
-				pdx->m_bBufferAllocate = FALSE;
-				status = -1;
-				return status;
-			}
-			else
-			{
-				pdx->m_AudioInfo[i].pStatusInfo[k].byLock = MEM_UNLOCK;
-				pdx->m_AudioInfo[i].m_pAudioData_area[k] = (char *)(((unsigned long)pdx->m_AudioInfo[i].m_pAudioBufData[k] + PAGE_SIZE -1) & PAGE_MASK);
-				for (phyvirt_addr=(unsigned long)pdx->m_AudioInfo[i].m_pAudioData_area[k]; phyvirt_addr < ((unsigned long)pdx->m_AudioInfo[i].m_pAudioData_area[k]  + pdx->m_dwAudioPTKSize);
-					 phyvirt_addr+=PAGE_SIZE)
-					 {
-						 // reserve all pages to make them remapable
-						 SetPageReserved(virt_to_page(phyvirt_addr));
-					 }
-			}
+				goto fail;
+			pdx->m_AudioInfo[i].pStatusInfo[k].byLock = MEM_UNLOCK;
 		}
 	}
-	#endif
-	//------------------------------------------------------------
-	//KdPrint(("Mem allocate::m_pAudioData = %x\n",  pdx->m_pAudioData));
-	pdx->m_bBufferAllocate = TRUE;
-	//KdPrint(("DmaMemAllocPool  ed\n"));
 	return 0;
+
+fail:
+	DmaMemFreePool(pdx);
+	return -1;
 }
 
 static void StopDevice(struct hws_pcie_dev *pdx)
@@ -4694,7 +4626,7 @@ static int  StartAudioCapture(struct hws_pcie_dev *pdx,int index)
 static int StartVideoCapture(struct hws_pcie_dev *pdx,int index)
 {
 	int j;
-	//unsigned long flags;
+	unsigned long flags;
 	if(pdx->m_bVCapStarted[index]==1)
 	{
 
@@ -4717,6 +4649,17 @@ static int StartVideoCapture(struct hws_pcie_dev *pdx,int index)
 	}
 	//spin_unlock_irqrestore(&pdx->videoslock[index], flags);
 	//pdx->m_nVideoIndex[index] =0;
+	/*
+	 * Frames left READY by an earlier session would otherwise be delivered
+	 * as the newest frame. A slot still being read is freed by the worker.
+	 */
+	spin_lock_irqsave(&pdx->videoslock[index], flags);
+	for (j = 0; j<MAX_VIDEO_QUEUE; j++)
+	{
+		if(pdx->m_VideoInfo[index].pStatusInfo[j].byLock == MEM_LOCK)
+			pdx->m_VideoInfo[index].pStatusInfo[j].byLock = MEM_UNLOCK;
+	}
+	spin_unlock_irqrestore(&pdx->videoslock[index], flags);
 	pdx->m_VideoInfo[index].dwisRuning = 1;
 	pdx->m_VideoInfo[index].m_nVideoIndex =0;
 	pdx->m_nRDVideoIndex[index]=0;
@@ -4893,32 +4836,31 @@ static int MemCopyVideoToSteam(struct hws_pcie_dev *pdx,int nDecoder)
 		//--------------
 		if(mVideoBufIndex== 1)
 		{
-			if(pdx->m_VideoInfo[nDecoder].pStatusInfo[pdx->m_VideoInfo[nDecoder].m_nVideoIndex].byLock== MEM_UNLOCK)
-
+			/*
+			 * First half: claim the write slot. Never write a slot the
+			 * worker is copying from (at most one is); a complete
+			 * frame nobody read yet is overwritten and counted as a drop.
+			 */
+			spin_lock_irqsave(&pdx->videoslock[nDecoder], flags);
+			nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
+			if(pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].byLock == MEM_READING)
 			{
-				nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
-				bBuf =	pdx->m_VideoInfo[nDecoder].m_pVideoBufData[nIndex];
-				bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData1[nIndex];
-
+				nIndex = (nIndex + 1) % MAX_VIDEO_QUEUE;
+				pdx->m_VideoInfo[nDecoder].m_nVideoIndex = nIndex;
 			}
+			if(pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].byLock == MEM_LOCK)
+				pdx->m_FramesDropped[nDecoder]++;
+			pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].byLock = MEM_UNLOCK;
+			spin_unlock_irqrestore(&pdx->videoslock[nDecoder], flags);
+			bBuf =	pdx->m_VideoInfo[nDecoder].m_pVideoBufData[nIndex];
+			bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData1[nIndex];
 		}
 		else
 		{
+			/* second half: same slot, still FREE, so the worker leaves it alone */
 			nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
 			bBuf =  pdx->m_VideoInfo[nDecoder].m_pVideoBufData2[nIndex];
 			bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData3[nIndex];
-
-		}
-		if(nIndex== -1)
-		{
-
-			//if(pdx->m_VideoInfo[nDecoder].pStatusInfo[video_index][pdx->m_VideoInfo[nDecoder].m_nVideoIndex[video_index]].byField== 0)
-			//{
-			pdx->m_VideoInfo[nDecoder].pStatusInfo[pdx->m_VideoInfo[nDecoder].m_nVideoIndex].byLock= MEM_UNLOCK;
-			nIndex = pdx->m_VideoInfo[nDecoder].m_nVideoIndex;
-			bBuf =  pdx->m_VideoInfo[nDecoder].m_pVideoBufData[nIndex];
-			bBuf1 = pdx->m_VideoInfo[nDecoder].m_pVideoBufData1[nIndex];
-			//}
 		}
 
 		//-------------------
@@ -4937,19 +4879,21 @@ static int MemCopyVideoToSteam(struct hws_pcie_dev *pdx,int nDecoder)
 				{
 					pdx->m_VideoInfo[nDecoder].m_nVideoIndex =0;
 				}
-				pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[2] = copysize;
-				pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[3] = copysize1;
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwSize[2] = copysize;
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwSize[3] = copysize1;
 				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwWidth = pdx->m_pVCAPStatus[nDecoder][0].dwWidth ;
 				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwHeight = pdx->m_pVCAPStatus[nDecoder][0].dwHeight;
 				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwinterlace = interlace;
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].tsNs = pdx->m_FrameEndNs[nDecoder];
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].seq = pdx->m_FrameSeq[nDecoder]++;
 				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].byLock = MEM_LOCK;
 
 				spin_unlock_irqrestore(&pdx->videoslock[nDecoder], flags);
 			}
 			else
 			{
-				pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[0] = copysize;
-				pdx->m_VideoInfo[nDecoder].m_VideoBufferSize[1] = copysize1;
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwSize[0] = copysize;
+				pdx->m_VideoInfo[nDecoder].pStatusInfo[nIndex].dwSize[1] = copysize1;
 				pdx->m_nVideoHalfDone[nDecoder] = 1;
 
 			}
@@ -5381,6 +5325,8 @@ static irqreturn_t irqhandler(int irq, void  *info)
 						tmp = (READ_REGISTER_ULONG(pdx,(CVBS_IN_BASE + (32+0) * PCIE_BARADDROFSIZE)))&0x01;
 						if(pdx->video_data[0] != tmp)
 						{
+							if(tmp == 0)	/* second half done: the frame is complete */
+								pdx->m_FrameEndNs[0] = ktime_get_ns();
 							pdx->video_data[0]= tmp;
 							pdx->m_nVideoBufferIndex[0]  = tmp;
 							tasklet_schedule(&pdx->dpc_video_tasklet[0]);  // tasklet_hi_schedule
@@ -5662,15 +5608,15 @@ static void SetDMAAddress(struct hws_pcie_dev *pdx)
 }
 
 //-----------------------------------
-static void ChangeVideoSize(struct hws_pcie_dev *pdx,int ch,int w,int h,int interlace)
+static int ChangeVideoSize(struct hws_pcie_dev *pdx,int ch,int w,int h,int interlace)
 {
 	int j;
 	int halfframeLength[4];
 	unsigned long flags;
-	if(ch != 0) return;
+	if(ch != 0) return -1;
 	if(SetVideoFormteSize(pdx,ch,w,h) != 1)
 	{
-		return;
+		return -1;
 	}
 	spin_lock_irqsave(&pdx->videoslock[ch], flags);
 	for (j = 0; j<MAX_VIDEO_QUEUE; j++)
@@ -5689,8 +5635,7 @@ static void ChangeVideoSize(struct hws_pcie_dev *pdx,int ch,int w,int h,int inte
 	WRITE_REGISTER_ULONG(pdx,(DWORD)(CBVS_IN_BUF_BASE2 + (1*PCIE_BARADDROFSIZE)), halfframeLength[1]); //Buffer 1 address
 	WRITE_REGISTER_ULONG(pdx,(DWORD)(CBVS_IN_BUF_BASE2 + (2*PCIE_BARADDROFSIZE)), halfframeLength[2]); //Buffer 1 address
 	WRITE_REGISTER_ULONG(pdx,(DWORD)(CBVS_IN_BUF_BASE2 + (3*PCIE_BARADDROFSIZE)), halfframeLength[3]); //Buffer 1 address
-
-
+	return 0;
 }
 
 static int Get_Video_Status(struct hws_pcie_dev *pdx,unsigned int  ch)
@@ -5716,21 +5661,32 @@ static int Get_Video_Status(struct hws_pcie_dev *pdx,unsigned int  ch)
 		value =  READ_REGISTER_ULONG(pdx,(DWORD)(CVBS_IN_BASE + (offset*PCIE_BARADDROFSIZE)));
 		res_w = value&0xFFFF;
 		res_h = (value>>16)&0xFFFF;
-		if(pdx->m_DeviceHW_Version==0)
-		{
-			if(res_w>3840) res_w = 3840;
-			if(res_h>2160) res_h = 2160;
-		}
+		/*
+		 * Version-0 cards, and cards whose DMA buffers had to fall back to
+		 * 4 MiB, capture 4096-wide input as 3840 wide (the vendor's v0
+		 * behaviour) so a quarter frame always fits its buffer.
+		 */
+		if(res_w > pdx->m_MaxInputWidth) res_w = pdx->m_MaxInputWidth;
+		if(pdx->m_DeviceHW_Version==0 && res_h > 2160) res_h = 2160;
+		no_video = 0;
 		if(((res_w <=MAX_VIDEO_HW_W) &&(res_h<=MAX_VIDEO_HW_H)&&(interlace==0))||((res_w <=MAX_VIDEO_HW_W) &&(res_h*2<=MAX_VIDEO_HW_H)&&(interlace==1)))
 		{
 			if((res_w !=pdx->m_pVCAPStatus[ch][0].dwWidth )||(res_h!= pdx->m_pVCAPStatus[ch][0].dwHeight)||(pdx->m_pVCAPStatus[ch][0].dwinterlace!=interlace))
 			{
-				ChangeVideoSize(pdx,ch,res_w,res_h,interlace);
-
+				if(ChangeVideoSize(pdx,ch,res_w,res_h,interlace) < 0)
+					no_video = 1;
 			}
 		}
-
-		no_video = 0;
+		else
+		{
+			no_video = 1;
+		}
+		if(no_video && pdx->m_UnsupportedRes != (((u32)res_w<<16)|res_h))
+		{
+			pdx->m_UnsupportedRes = ((u32)res_w<<16)|res_h;
+			dev_warn(&pdx->pdev->dev, "unsupported input %dx%d%s, showing no-signal frames\n",
+				 res_w, res_h, interlace ? "i" : "p");
+		}
 		//printk("[MV-X1]-[ch-%d]W=%d H=%d interlace =%d %dx%d \n",ch,res_w,res_h,interlace,pdx->m_pVCAPStatus[ch][0].dwWidth, pdx->m_pVCAPStatus[ch][0].dwHeight);
 	}
 	else
@@ -5796,7 +5752,7 @@ int MainKsThreadHandle(void *arg)
 	int need_check=0;
 	int i=0;
 	struct hws_pcie_dev *pdx = (struct hws_pcie_dev *)(arg);
-	while(1)
+	while(!kthread_should_stop())
 	{
 
 		need_check=0;
@@ -5812,12 +5768,12 @@ int MainKsThreadHandle(void *arg)
 		{
 			CheckVideFmt(pdx);
 		}
-		ssleep(1);
-		if(kthread_should_stop())
-		{
-			break;
-		}
-
+		/*
+		 * TASK_IDLE: ssleep() slept uninterruptibly, which counts toward
+		 * the load average and kept it 1.0 higher for as long as the
+		 * module was loaded. kthread_stop() still wakes this early.
+		 */
+		schedule_timeout_idle(HZ);
 	}
 	//printk("MainKsThreadHandle Exit");
 	return 0;
