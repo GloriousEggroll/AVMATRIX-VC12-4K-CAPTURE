@@ -1842,9 +1842,18 @@ void audio_data_process(struct work_struct *p_work)
 	unsigned long flags;
 	//int avail = 0;
 	dwAudioCh = drv->index;
-	nIndex = -1;
 	//printk("audio_data_process %d\n",dwAudioCh);
 	spin_lock_irqsave(&pdx->audiolock[dwAudioCh], flags);
+	/*
+	 * queue_work() does nothing if the work is already pending, so several
+	 * IRQs can map to one run. Drain every filled packet here; delivering only
+	 * one per run left packets waiting for the next IRQ, adding up to a
+	 * packet of jitter to the ALSA pointer.
+	 */
+	for(;;)
+	{
+	nIndex = -1;
+	bBuf = NULL;
 	for( i = pdx->m_nRDAudioIndex[dwAudioCh];i<MAX_AUDIO_QUEUE;i++)
 	{
 		if(pdx->m_AudioInfo[dwAudioCh].pStatusInfo[i].byLock== MEM_LOCK)
@@ -1869,7 +1878,8 @@ void audio_data_process(struct work_struct *p_work)
 
 		}
 	}
-	if((nIndex != -1)&&(bBuf))
+	if((nIndex == -1)||(!bBuf))
+		break;
 	{
 		//--- send data -------------
 		delived = _deliver_samples(drv,bBuf, aud_len);
@@ -1890,6 +1900,7 @@ void audio_data_process(struct work_struct *p_work)
 		nIndex =0;
 	}
 	pdx->m_nRDAudioIndex[dwAudioCh] = nIndex;
+	}
 	}
 	spin_unlock_irqrestore(&pdx->audiolock[dwAudioCh], flags);
 
@@ -3763,9 +3774,16 @@ static const int cs_data_fs[] = {
 };
 #if 1
 static struct snd_pcm_hardware audio_pcm_hardware = {
+	/*
+	 * BATCH: the pointer only moves when a whole DMA packet
+	 * (MAX_DMA_AUDIO_PK_SIZE, 1024 frames / 21.3 ms) lands, so tell
+	 * userspace it is coarse. Without it PipeWire's timer scheduling reads
+	 * the jumps as clock drift and resamples the audio (robotic sound).
+	 */
 	.info 				=	(SNDRV_PCM_INFO_MMAP |
 	SNDRV_PCM_INFO_INTERLEAVED |
 	SNDRV_PCM_INFO_BLOCK_TRANSFER |
+	SNDRV_PCM_INFO_BATCH |
 	SNDRV_PCM_INFO_RESUME |
 	SNDRV_PCM_INFO_MMAP_VALID),
 	.formats 			=	SNDRV_PCM_FMTBIT_S16_LE,
@@ -3775,7 +3793,8 @@ static struct snd_pcm_hardware audio_pcm_hardware = {
 	.channels_min 		=	2,
 	.channels_max 		=	2,
 	.buffer_bytes_max 	=	64*1024,
-	.period_bytes_min 	=	512,
+	/* a period shorter than one DMA packet can never complete on its own */
+	.period_bytes_min 	=	MAX_DMA_AUDIO_PK_SIZE,
 	.period_bytes_max 	=	16*1024,
 	.periods_min 		=	2,
 	.periods_max 		=	255,
@@ -3808,7 +3827,9 @@ int hws_pcie_audio_open(struct snd_pcm_substream *substream)
 	runtime->hw = audio_pcm_hardware;
 	drv->substream = substream;
 	//snd_pcm_hw_constraint_minmax(runtime,SNDRV_PCM_HW_PARAM_RATE,setrate,setrate);
-	return 0;
+	/* periods are whole DMA packets, so period_elapsed fires on packet boundaries */
+	return snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+					  MAX_DMA_AUDIO_PK_SIZE);
 }
 
 int hws_pcie_audio_close(struct snd_pcm_substream *substream)
