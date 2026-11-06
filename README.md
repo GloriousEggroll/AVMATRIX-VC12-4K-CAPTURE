@@ -1,3 +1,8 @@
+> [!WARNING]
+> **This repository is deprecated and no longer maintained.** Use [HWS_VIDEO_CAPTURE_GENERIC](https://github.com/GloriousEggroll/HWS_VIDEO_CAPTURE_GENERIC) instead. Its `hwsvideo` driver replaces this one and supports the same cards.
+>
+> To switch, follow its [install steps](https://github.com/GloriousEggroll/HWS_VIDEO_CAPTURE_GENERIC#install). Its `install.sh` removes this driver for you. Any `options HwsUHDX1Capture ...` line in `/etc/modprobe.d/hws.conf` must change to `options hwsvideo ...`.
+
 # AVMatrix VC12-4K capture card driver for Linux
 
 This driver runs the AVMatrix VC12-4K, a PCIe card that captures one HDMI input at up to 3840×2160 at 60 Hz or 1920×1080 at 240 Hz, with its stereo audio. It gives you two devices:
